@@ -74,9 +74,11 @@ namespace pausing {
     uint64_t PLockCount = 0; // player pause lock
 
     const size_t array_size = sizeof(decltype(df::announcements::flags)) / sizeof(df::announcement_flags);
-    bool state_saved = false;
-    bool saved_states[array_size];
-    bool locked_states[array_size];
+
+    bool state_saved = false; // indicates whether a restore state is ok
+    bool saved_states[array_size]; // state to restore
+    bool locked_states[array_size]; // locked state (re-applied each frame)
+    bool allow_player_pause = true; // toggles player pause ability
 }
 using namespace pausing;
 
@@ -142,11 +144,18 @@ void World::UnlockPlayerPausing() {
     ALockCount--;
 }
 
+bool World::EnablePlayerPausing() {
+    if (!PLockCount) {
+        allow_player_pause = true;
+        return true;
+    }
+    return false;
+}
+
 bool World::DisablePlayerPausing() {
     if (!PLockCount) {
-        for (;;) {
-
-        }
+        allow_player_pause = false;
+        return true;
     }
     return false;
 }

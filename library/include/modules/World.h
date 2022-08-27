@@ -81,6 +81,7 @@ namespace DFHack
         DFHACK_EXPORT void UnlockAnnouncementPausing();
 
         DFHACK_EXPORT bool ReadPlayerPauseLock();
+        DFHACK_EXPORT bool EnablePlayerPausing();
         DFHACK_EXPORT bool DisablePlayerPausing();
         DFHACK_EXPORT void LockPlayerPausing();
         DFHACK_EXPORT void UnlockPlayerPausing();
