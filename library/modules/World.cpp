@@ -52,6 +52,9 @@ using namespace std;
 #include "df/block_square_event_world_constructionst.h"
 #include "df/viewscreen_legendsst.h"
 #include "df/d_init.h"
+#include "df/viewscreen_dwarfmodest.h"
+#include "df/ui.h"
+#include "VTableInterpose.h"
 
 using namespace DFHack;
 using namespace df::enums;
@@ -76,9 +79,24 @@ namespace pausing {
     const size_t array_size = sizeof(decltype(df::announcements::flags)) / sizeof(df::announcement_flags);
 
     bool state_saved = false; // indicates whether a restore state is ok
+    bool announcements_disabled = false; // indicates whether disable or restore was last enacted
     bool saved_states[array_size]; // state to restore
     bool locked_states[array_size]; // locked state (re-applied each frame)
     bool allow_player_pause = true; // toggles player pause ability
+
+
+    using df::global::ui;
+    using namespace df::enums;
+    struct player_pause_hook : df::viewscreen_dwarfmodest {
+        typedef df::viewscreen_dwarfmodest interpose_base;
+        DEFINE_VMETHOD_INTERPOSE(void, feed, (std::set<df::interface_key>* input)) {
+            if ((ui->main.mode == ui_sidebar_mode::Default) && input->count(interface_key::D_PAUSE) && allow_player_pause) {
+                INTERPOSE_NEXT(feed)(input);
+            }
+        }
+    };
+
+    IMPLEMENT_VMETHOD_INTERPOSE(player_pause_hook, feed);
 }
 using namespace pausing;
 
@@ -91,9 +109,9 @@ bool World::DisableAnnouncementPausing() {
         for (auto& flag : df::global::d_init->announcements.flags) {
             flag.bits.PAUSE = false;
         }
-        return true;
+        announcements_disabled = true;
     }
-    return false;
+    return announcements_disabled;
 }
 
 bool World::SaveAnnouncementPausingConfig() {
@@ -111,6 +129,7 @@ bool World::RestoreAnnouncementPausingConfig() {
         for (size_t i = 0; i < array_size; ++i) {
             df::global::d_init->announcements.flags[i].bits.PAUSE = saved_states[i];
         }
+        announcements_disabled = false;
         return true;
     }
     return false;
@@ -125,11 +144,11 @@ void World::LockAnnouncementPausing() {
     ALockCount++;
 }
 
-void World::UnlockAnnouncementPausing() {
+bool World::UnlockAnnouncementPausing() {
     if (!ALockCount) {
-        return;
+        return true;
     }
-    ALockCount--;
+    return --ALockCount;
 }
 
 
@@ -137,27 +156,25 @@ void World::LockPlayerPausing() {
     PLockCount++;
 }
 
-void World::UnlockPlayerPausing() {
-    if (!ALockCount) {
-        return;
+bool World::UnlockPlayerPausing() {
+    if (!PLockCount) {
+        return true;
     }
-    ALockCount--;
+    return --PLockCount;
 }
 
 bool World::EnablePlayerPausing() {
     if (!PLockCount) {
         allow_player_pause = true;
-        return true;
     }
-    return false;
+    return allow_player_pause;
 }
 
 bool World::DisablePlayerPausing() {
     if (!PLockCount) {
         allow_player_pause = false;
-        return true;
     }
-    return false;
+    return !allow_player_pause;
 }
 
 bool World::ReadPlayerPauseLock() {
@@ -165,6 +182,11 @@ bool World::ReadPlayerPauseLock() {
 }
 
 void World::Update() {
+    static bool did_once = false;
+    if (!did_once) {
+        did_once = true;
+        INTERPOSE_HOOK(player_pause_hook, feed).apply();
+    }
     if (ALockCount) {
         for (size_t i = 0; i < array_size; ++i) {
             df::global::d_init->announcements.flags[i].bits.PAUSE = locked_states[i];
