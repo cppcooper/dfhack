@@ -295,7 +295,7 @@ void onTick(color_ostream& out, void* ptr) {
             df::global::ui->follow_unit = -1;
         }
     }
-    if (!following_dwarf || (focus_jobs_enabled && !job_watched) || (tick - timestamp) > (int32_t) tick_threshold) {
+    if (!following_dwarf || (focus_jobs_enabled && !job_watched) || timestamp == -1 || (tick - timestamp) > (int32_t) tick_threshold) {
         std::vector<df::unit*> dwarves;
         for (auto unit: df::global::world->units.active) {
             if (!Units::isCitizen(unit)) {
@@ -309,7 +309,7 @@ void onTick(color_ostream& out, void* ptr) {
         df::global::ui->follow_unit = our_dorf->id;
         job_watched = our_dorf->job.current_job;
         following_dwarf = true;
-        if (!job_watched) {
+        if (focus_jobs_enabled && !job_watched) {
             timestamp = tick;
         }
     }
@@ -324,7 +324,8 @@ void onJobStart(color_ostream& out, void* job_ptr) {
     int zcount = ++freq[job->pos.z];
     job_tracker.emplace(job->id);
     // if we're not doing anything~ then let's pick something
-    if ((focus_jobs_enabled && !job_watched) || (tick - timestamp) > (int32_t) tick_threshold) {
+    if ((focus_jobs_enabled && !job_watched) || timestamp == -1 || (tick - timestamp) > (int32_t) tick_threshold) {
+        timestamp = tick;
         following_dwarf = true;
         // todo: allow the user to configure b, and also revise the math
         const double b = base;
