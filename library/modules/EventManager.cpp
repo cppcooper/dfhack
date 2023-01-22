@@ -327,7 +327,6 @@ public:
         active_units.clear();
         valid_reports.clear();
         valid_buildings.clear();
-        job_clones.clear();
     }
     static Scanner& get() {
         static Scanner instance;
@@ -451,7 +450,7 @@ protected:
         for (const auto &map_pair : previous_jobs) {
             const int32_t &id = map_pair.first;
             const auto &job_from_last_tick = map_pair.second;
-            
+
             // the timer needs to have been at 0 last tick
             if (job_from_last_tick->completion_timer != 0)
                 continue;
@@ -473,7 +472,7 @@ protected:
             }
         }
         previous_jobs.clear();
-        previous_jobs.copy(current_jobs.begin(), current_jobs.end());
+        previous_jobs = std::unordered_map<int32_t, std::shared_ptr<df::job>>(current_jobs.begin(), current_jobs.end());
     }
 
     void scan_buildings(color_ostream &out, const int32_t &tick) {
