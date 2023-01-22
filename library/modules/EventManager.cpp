@@ -219,6 +219,7 @@ static unordered_set<int32_t> deadUnits; // we scan and add new dead to the list
 
 //item creation
 static int32_t nextItem;
+static std::unordered_set<int32_t> newItems;
 
 //building
 static int32_t nextBuilding;
@@ -287,21 +288,25 @@ static int32_t getTime(){
  * parse_strike_report: sendUnitAttackEvents
  * */
 
+// todo: move into "Cache.cpp" and create a cache module
 class Scanner{
 private:
     Scanner() = default;
     // current tick's data
-    std::unordered_set<int32_t> all_units;
-    std::unordered_set<int32_t> active_units;
-    std::unordered_set<int32_t> living_units;
+    std::unordered_set<int32_t> valid_units;
     std::unordered_set<int32_t> valid_items;
     std::unordered_set<int32_t> valid_reports;
     std::unordered_set<int32_t> valid_buildings;
-    std::unordered_map<int32_t, std::shared_ptr<df::job>> valid_jobs;
+    std::unordered_map<int32_t, std::shared_ptr<df::job>> current_jobs;
     std::unordered_map<df::coord, df::construction*> valid_constructions;
 
+    std::unordered_set<int32_t> active_units;
+    std::unordered_set<int32_t> living_units;
+    std::unordered_set<int32_t> new_jobs;
+    std::unordered_set<int32_t> started_jobs;
+    std::unordered_set<int32_t> completed_jobs;
+
 public:
-    const std::unordered_map<int32_t, std::shared_ptr<df::job>> &current_jobs = valid_jobs;
     inline void scan(color_ostream& out, const int32_t &tick) {
         if (!df::global::world)
             return;
@@ -312,17 +317,17 @@ public:
         scan_reports(out, tick); // depends on scanning units first
 
         // if there's a new invasion we'll add it
-        if (!df::global::ui)
+        if (!df::global::plotinfo)
             return;
         invasions.emplace(nextInvasion);
-        nextInvasion = df::global::ui->invasions.next_id;
+        nextInvasion = df::global::plotinfo->invasions.next_id;
     }
     inline void clear() {
-        all_units.clear();
+        valid_units.clear();
         active_units.clear();
         valid_reports.clear();
         valid_buildings.clear();
-        valid_jobs.clear();
+        job_clones.clear();
     }
     static Scanner& get() {
         static Scanner instance;
@@ -342,34 +347,32 @@ public:
      * */
 protected:
     void scan_units(color_ostream &out, const int32_t &tick) {
-        static std::unordered_map<int32_t, bool> previous_aliveness; // from last tick
-        static std::unordered_set<int32_t> previous_active; // from last tick
-        std::unordered_map<int32_t, bool> current_aliveness; // from this tick
         int32_t current_time = getTime();
         active_units.clear();
-        all_units.clear();
-        // loop active units
+        valid_units.clear();
+
+        // loop all units
         for (df::unit* unit: df::global::world->units.all) {
             int32_t id = unit->id;
             // we'll be using these member sets in other methods (for stale id clean up)
-            all_units.emplace(id);
+            valid_units.emplace(id);
             if (Units::isActive(unit)) {
                 active_units.emplace(id);
             }
             // check if this unit was alive on the previous tick
-            bool dead_longtime = false;
+            bool scan_unit = true;
             if (!Units::isAlive(unit)) {
                 if (living_units.count(id)) {
                     living_units.erase(id);
                     deadUnits.emplace(id);
                 } else {
-                    dead_longtime = true;
+                    scan_unit = false;
                 }
             } else if (!living_units.count(id)) {
                 // it wasn't so it's a new unit
                 living_units.emplace(id);
             }
-            if (!dead_longtime) {
+            if (scan_unit) {
                 // also scan its inventory
                 scan_unit_inventory(out, tick, unit);
                 // scan the unit for reports
@@ -386,12 +389,11 @@ protected:
                 }
             }
         }
-        previous_aliveness.swap(current_aliveness);
-        previous_active = active_units;
     }
 
     void scan_items(color_ostream &out, const int32_t &tick){
         std::unordered_set<int32_t> previous_items;
+        // we swap the valid items to the previous items list and we clear the valid items list [to prune invalid items]
         previous_items.swap(valid_items);
 
         // loop all current items
@@ -424,89 +426,54 @@ protected:
     void scan_jobs(color_ostream &out, const int32_t &tick) {
         if (!df::global::job_next_id)
             return;
-        static int32_t fn_last_tick = -2;
-        std::unordered_set<int32_t> still_valid_jobs; // from this tick
+
+        static std::unordered_map<int32_t, std::shared_ptr<df::job>> previous_jobs;
+        current_jobs.clear();
 
         // loop current valid jobs
         for (df::job_list_link* link = df::global::world->jobs.list.next; link != nullptr; link = link->next) {
             if (df::job* job = link->item) {
+                if (!job) continue;
                 auto id = job->id;
-                still_valid_jobs.emplace(id);
-                if (!valid_jobs.count(id)) {
-                    auto clone = Job::cloneJobStruct(job, true);
-                    auto cp = std::shared_ptr<df::job>(clone, [](df::job* p) { Job::deleteJobStruct(p, true); });
-                    valid_jobs.emplace(id, job);
-                }
+                auto cp = std::shared_ptr<df::job>(Job::cloneJobStruct(job, true),
+                                                   [](df::job* p) { Job::deleteJobStruct(p, true); });
+                // cache the current job data
+                current_jobs.emplace(id, cp);
 
-                // check if this job existed last tick
-                if (previous_jobs.count(id)) {
-                    // it did, so we compare
-                    auto lp = previous_jobs.find(id)->second;
-                    // we check if a worker has been added
-                    if (Job::getWorker(cp.get()) && !Job::getWorker(lp.get())) {
-                        // it has a worker where it previously didn't, so it's "started"
-                        startedJobs.emplace(tick, id);
-                    }
-                } else {
-                    // it didn't, so it must be new
-                    newJobs.emplace(tick, id);
+                if (!new_jobs.count(id)) {
+                    new_jobs.emplace(id);
+                }
+                if (Job::getWorker(job) && !started_jobs.count(id)) {
+                    started_jobs.emplace(id);
                 }
             }
         }
-        //if it happened within a tick, must have been cancelled by the user or a plugin: not completed
-        if (tick > fn_last_tick) { // todo: this check is probably redundant, we're only keeping it because it came with a comment that suggests it might not be redundant (and if it isn't, we're probably missing it somewhere else)
-            // loop the previous tick's jobs
-            for (auto &key_value : previous_jobs) {
-                if (current_jobs_cloned.count(key_value.first) == 0) {
-                    auto job_last_tick = key_value.second;
-                    int32_t id = job_last_tick->id;
+        for (const auto &map_pair : previous_jobs) {
+            const int32_t &id = map_pair.first;
+            const auto &job_from_last_tick = map_pair.second;
+            
+            // the timer needs to have been at 0 last tick
+            if (job_from_last_tick->completion_timer != 0)
+                continue;
 
-                    // check for the started job in the current jobs (the jobs we just copied above)
-                    if (current_jobs_cloned.count(id)) {
-                        auto job_this_tick = current_jobs_cloned.find(id)->second;
-                        // it needs to be a repeat job
-                        if (!job_last_tick->flags.bits.repeat)
-                            continue;
-                        // the completion counter from last tick must be 0
-                        if (job_last_tick->completion_timer != 0)
-                            continue;
-                        // the completion counter needs to now be -1
-                        if (job_this_tick->completion_timer != -1)
-                            continue;
-                        //still false positive if cancelled at EXACTLY the right time, but experiments show this doesn't happen
-                        completedJobs.emplace(tick, job_this_tick);
-                    } else {
-                        // if we didn't find it, we just check that it probably wasn't cancelled (I think is what this does)
-                        if (job_last_tick->flags.bits.repeat || job_last_tick->completion_timer != 0)
-                            continue;
-                        completedJobs.emplace(tick, job_last_tick);
-                    }
-                }
-            }
-        }
-        // clean up stale jobs
-        for( auto iter = newJobs.begin(); iter != newJobs.end();) {
-            // check for a valid reference
-            if (!valid_jobs.count(iter->second)) {
-                // none found, so remove it
-                iter = newJobs.erase(iter);
+            // check whether the job still exists
+            if (current_jobs.count(id)) {
+                // it exists, but it may be a repeat job
+                if (!job_from_last_tick->flags.bits.repeat)
+                    continue;
+                const auto &job_from_this_tick = current_jobs[id];
+                if (job_from_this_tick->completion_timer != -1)
+                    continue;
+                completed_jobs.emplace(id);
             } else {
-                ++iter;
+                // no longer exists, so it recently finished or was cancelled
+                if (job_from_last_tick->flags.bits.repeat)
+                    continue; // the idea here is that a repeat job should still exist, so it must have been deleted?
+                completed_jobs.emplace(id);
             }
         }
-        // clean up stale jobs
-        for( auto iter = startedJobs.begin(); iter != startedJobs.end();) {
-            // check for a valid reference
-            if (!valid_jobs.count(iter->second)) {
-                // none found, so remove it
-                iter = startedJobs.erase(iter);
-            } else {
-                ++iter;
-            }
-        }
-        // completedJobs doesn't get stale jobs
-        fn_last_tick = tick;
-        previous_jobs.swap(current_jobs_cloned);
+        previous_jobs.clear();
+        previous_jobs.copy(current_jobs.begin(), current_jobs.end());
     }
 
     void scan_buildings(color_ostream &out, const int32_t &tick) {
@@ -733,7 +700,7 @@ protected:
 
         // todo: switch to hashed search? ie. `std::unordered_set<item ids> valid_items`
         for (auto iter = equipmentChanges.begin(); iter != equipmentChanges.end();) {
-            if (!all_units.count(iter->second.unitId)
+            if (!valid_units.count(iter->second.unitId)
                 || df::item::binsearch_index(df::global::world->items.all, iter->second.item_new->itemId, true) < 0
                 || df::item::binsearch_index(df::global::world->items.all, iter->second.item_old->itemId, true) < 0) {
                 // we have stale data
@@ -768,7 +735,7 @@ protected:
             auto &units = key_value.second;
             for(auto iter = units.begin(); iter != units.end();) {
                 // we check for the id in `all_units` to determine whether it's stale
-                if (!all_units.count(*iter)){
+                if (!valid_units.count(*iter)){
                     iter = units.erase(iter);
                 } else {
                     ++iter;
