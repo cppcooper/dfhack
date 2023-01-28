@@ -293,14 +293,12 @@ class Scanner{
 private:
     Scanner() = default;
     // current tick's data
-    std::unordered_set<int32_t> valid_units;
     std::unordered_set<int32_t> valid_items;
     std::unordered_set<int32_t> valid_reports;
     std::unordered_set<int32_t> valid_buildings;
     std::unordered_map<int32_t, std::shared_ptr<df::job>> current_jobs;
     std::unordered_map<df::coord, df::construction*> valid_constructions;
 
-    std::unordered_set<int32_t> active_units;
     std::unordered_set<int32_t> living_units;
     std::unordered_set<int32_t> new_jobs;
     std::unordered_set<int32_t> started_jobs;
@@ -347,29 +345,25 @@ public:
 protected:
     void scan_units(color_ostream &out, const int32_t &tick) {
         int32_t current_time = getTime();
-        active_units.clear();
-        valid_units.clear();
 
         // loop all units
         for (df::unit* unit: df::global::world->units.all) {
             int32_t id = unit->id;
-            // we'll be using these member sets in other methods (for stale id clean up)
-            valid_units.emplace(id);
-            if (Units::isActive(unit)) {
-                active_units.emplace(id);
-            }
-            // check if this unit was alive on the previous tick
             bool scan_unit = true;
             if (!Units::isAlive(unit)) {
+                // it is dead
                 if (living_units.count(id)) {
+                    // it is not on the dead list
                     living_units.erase(id);
                     deadUnits.emplace(id);
                 } else {
+                    // it has been dead, so we won't scan it
                     scan_unit = false;
                 }
             } else if (!living_units.count(id)) {
-                // it wasn't so it's a new unit
+                // it is alive, and not on the living list yet
                 living_units.emplace(id);
+                deadUnits.erase(id);
             }
             if (scan_unit) {
                 // also scan its inventory
