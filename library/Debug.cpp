@@ -56,9 +56,8 @@ void signal_handler(int sig) {
 
     void* stackFrames[256];
     int stackFrameCount = 0;
-   
+
 #ifdef _WIN32
-   
     std::ofstream traceFile("stacktrace.txt");
     if (!traceFile.is_open()) {
         std::cerr << "Failed to open stacktrace file" << std::endl;
