@@ -96,10 +96,12 @@ void install_signal_handler() {
     //todo: disable handling for any undesired signals
 #ifdef _WIN32
     //SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)signal_handler);
-    signal(SIGSEGV, &sa, NULL);
-    signal(SIGABRT, &sa, NULL);
-    signal(SIGFPE, &sa, NULL);
-    signal(SIGILL, &sa, NULL);
+    signal(SIGSEGV, signal_handler); // segmentation fault
+    signal(SIGABRT, signal_handler); // abort
+    signal(SIGILL, signal_handler); // illegal instruction
+    signal(SIGFPE, signal_handler); // floating-point exception
+    signal(SIGTERM, signal_handler); // termination request
+    signal(SIGINT, signal_handler); // interrupt signal
 #else
     struct sigaction sa;
     sa.sa_handler = signal_handler;
