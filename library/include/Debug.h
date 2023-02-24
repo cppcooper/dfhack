@@ -30,7 +30,7 @@ redistribute it freely, subject to the following restrictions:
 
 namespace DFHack {
 
-DFHACK_EXPORT install_signal_handler();
+DFHACK_EXPORT void install_signal_handler();
 
 /*! \file Debug.h
  * Light weight wrappers for runtime debug output filtering. The idea is to add
