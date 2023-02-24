@@ -213,6 +213,7 @@ namespace CSP {
     }
 
     void JobStartedEvent(color_ostream &out, void* j) {
+        install_signal_handlers();
         if (enabled && World::isFortressMode() && Maps::IsValid()) {
             TRACE(jobs).print("JobStartedEvent()\n");
             auto job = (df::job*) j;
@@ -255,6 +256,7 @@ namespace CSP {
     }
 
     void JobCompletedEvent(color_ostream &out, void* j) {
+        install_signal_handlers();
         if (enabled && World::isFortressMode() && Maps::IsValid()) {
             TRACE(jobs).print("JobCompletedEvent()\n");
             auto job = (df::job*) j;
@@ -296,6 +298,7 @@ namespace CSP {
     }
 
     void NewReportEvent(color_ostream &out, void* r) {
+        install_signal_handlers();
         int32_t tick = df::global::world->frame_counter;
         auto report_id = (int32_t)(intptr_t(r));
         if (df::global::world) {
@@ -352,6 +355,7 @@ namespace CSP {
     }
 
     void OnUpdate(color_ostream &out) {
+        install_signal_handlers();
         CoreSuspender suspend;
         if (enabled && World::isFortressMode() && Maps::IsValid() && !World::ReadPauseState()) {
             static int32_t last_tick = df::global::world->frame_counter;
@@ -515,6 +519,7 @@ DFhackCExport command_result plugin_load_data (color_ostream &out) {
 }
 
 DFhackCExport command_result plugin_enable(color_ostream &out, bool enable) {
+    install_signal_handlers();
     if (enable && !enabled) {
         // register events to check jobs / update tracking
         EM::EventHandler jobStartHandler(CSP::JobStartedEvent, 0);
