@@ -21,7 +21,7 @@ void ChannelJobs::load_channel_jobs() {
 }
 
 bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) {
-    if (!Maps::isValidTilePos(map_pos) return false;
+    if (!Maps::isValidTilePos(map_pos)) return false;
     auto p = map_pos;
     auto ttype = *Maps::getTileType(p);
     if (!DFHack::isOpenTerrain(ttype)) {
