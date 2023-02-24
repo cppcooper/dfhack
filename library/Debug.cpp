@@ -29,6 +29,8 @@ redistribute it freely, subject to the following restrictions:
 #include <chrono>
 #include <iomanip>
 #include <thread>
+#include <fstream>
+#include <csignal>
 
 #ifdef _MSC_VER
 static tm* localtime_r(const time_t* time, tm* result)
@@ -54,8 +56,14 @@ void signal_handler(int sig) {
 
     void* stackFrames[256];
     int stackFrameCount = 0;
-
+   
 #ifdef _WIN32
+   
+    std::ofstream traceFile("stacktrace.txt");
+    if (!traceFile.is_open()) {
+        std::cerr << "Failed to open stacktrace file" << std::endl;
+        return;
+    }
     HANDLE process = GetCurrentProcess();
     SymInitialize(process, NULL, TRUE);
     stackFrameCount = CaptureStackBackTrace(0, 256, stackFrames, NULL);
@@ -75,8 +83,9 @@ void signal_handler(int sig) {
         } else {
             symbolName[0] = 0;
         }
-        std::cerr << "#" << i << " " << symbolName << " at " << address << std::endl;
+        traceFile << "#" << i << " " << symbolName << " at " << address << std::endl;
     }
+   traceFile.close();
 #else
     stackFrameCount = backtrace(stackFrames, 256);
     backtrace_symbols_fd(stackFrames, stackFrameCount, STDERR_FILENO);
@@ -87,7 +96,11 @@ void install_signal_handler() {
     // register the handle_signal function
     //todo: disable handling for any undesired signals
 #ifdef _WIN32
-    SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)signal_handler);
+    //SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)signal_handler);
+    signal(SIGSEGV, &sa, NULL);
+    signal(SIGABRT, &sa, NULL);
+    signal(SIGFPE, &sa, NULL);
+    signal(SIGILL, &sa, NULL);
 #else
     struct sigaction sa;
     sa.sa_handler = signal_handler;
