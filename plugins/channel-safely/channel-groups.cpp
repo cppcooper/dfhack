@@ -21,6 +21,7 @@ void ChannelJobs::load_channel_jobs() {
 }
 
 bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) {
+    if (!Maps::isValidTilePos(map_pos) return false;
     auto p = map_pos;
     auto ttype = *Maps::getTileType(p);
     if (!DFHack::isOpenTerrain(ttype)) {
@@ -29,6 +30,7 @@ bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) {
         get_connected_neighbours(map_pos, neighbours);
         int connectedness = 4;
         for (auto n: neighbours) {
+            if (!Maps::isValidTilePos(n)) continue;
             if (active.count(n) || DFHack::isOpenTerrain(*Maps::getTileType(n))) {
                 connectedness--;
             }
@@ -88,6 +90,7 @@ void ChannelGroups::add(const df::coord &map_pos) {
     DEBUG(groups).print("    add(" COORD ")\n", COORDARGS(map_pos));
     // and so we begin iterating the neighbours
     for (auto &neighbour: neighbors) {
+        if (!Maps::isValidTilePos(neighbour)) continue;
         // go to the next neighbour if this one doesn't have a group
         if (!groups_map.count(neighbour)) {
             TRACE(groups).print(" -> neighbour is not designated\n");
