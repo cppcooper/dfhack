@@ -92,17 +92,17 @@ command_result eventExample(color_ostream& out, vector<string>& parameters) {
     EventManager::registerListener(EventManager::EventType::SYNDROME, syndromeHandler);
     EventManager::registerListener(EventManager::EventType::INVASION, invasionHandler);
     EventManager::registerListener(EventManager::EventType::UNIT_ATTACK, unitAttackHandler);
-    EventManager::registerTick(timeHandler, 1);
-    EventManager::registerTick(timeHandler, 2);
-    EventManager::registerTick(timeHandler, 4);
-    EventManager::registerTick(timeHandler, 8);
-    int32_t t = EventManager::registerTick(timeHandler, 16);
-    timeHandler.freq = t;
+    EventManager::registerTick(timeHandler, 1, plugin_self);
+    EventManager::registerTick(timeHandler, 2, plugin_self);
+    EventManager::registerTick(timeHandler, 4, plugin_self);
+    EventManager::registerTick(timeHandler, 8, plugin_self);
+    int32_t t = EventManager::registerTick(timeHandler, 16, plugin_self);
+    timeHandler.when = t;
     EventManager::unregister(EventManager::EventType::TICK, timeHandler);
-    t = EventManager::registerTick(timeHandler, 32);
-    t = EventManager::registerTick(timeHandler, 32);
-    t = EventManager::registerTick(timeHandler, 32);
-    timeHandler.freq = t;
+    t = EventManager::registerTick(timeHandler, 32, plugin_self);
+    t = EventManager::registerTick(timeHandler, 32, plugin_self);
+    t = EventManager::registerTick(timeHandler, 32, plugin_self);
+    timeHandler.when = t;
     EventManager::unregister(EventManager::EventType::TICK, timeHandler);
     EventManager::unregister(EventManager::EventType::TICK, timeHandler);
 

@@ -86,6 +86,7 @@ Template for new versions:
 - ``Units``: new ``isWildlife`` and ``isAgitated`` property checks
 - ``Items::createItem``: removed ``growth_print`` parameter; now determined automatically
 - ``DFHack::cuboid``: ``cuboid::clampMap`` now returns the cuboid itself (instead of boolean) to allow method chaining; call ``cuboid::isValid`` to determine success
+- ``EventManager``: revises tick events to work as listeners. Tick events registered with ``registerListener`` will now automatically requeue at their designated frequency.
 
 ## Lua
 - ``dfhack.units``: ``isWildlife`` and ``isAgitated`` property checks
