@@ -53,25 +53,19 @@ This skeletal logic has not been kept up-to-date since ~v0.5
         -> NoDesignation: manage tile below
 */
 
-#include "plugin.h"
-#include "inlines.h"
-#include "channel-manager.h"
-#include "tile-cache.h"
 
-#include <Debug.h>
+#include <plugin.h>
+#include <inlines.h>
+#include <tile-cache.h>
+
 #include <PluginManager.h>
-
-#include <modules/EventManager.h>
-#include <modules/Units.h>
-
+#include <df/announcement_type.h>
 #include <df/block_square_event_designation_priorityst.h>
 #include <df/report.h>
-#include <df/tile_traffic.h>
-#include <df/world.h>
+#include <df/unit.h>
+#include <modules/Units.h>
+#include <memory>
 
-#include <cinttypes>
-#include <unordered_map>
-#include <unordered_set>
 
 // Debugging
 namespace DFHack {
@@ -89,6 +83,8 @@ REQUIRE_GLOBAL(world);
 namespace EM = EventManager;
 using namespace DFHack;
 using namespace EM::EventType;
+
+std::unique_ptr<EM::EventHandler> HandleEnablingMining;
 
 int32_t mapx, mapy, mapz;
 Configuration config;
@@ -314,7 +310,7 @@ namespace CSP {
             return;
         }
         switch (report->type) {
-            case announcement_type::CANCEL_JOB:
+            case announcement_type::announcement_type::CANCEL_JOB:
                 if (config.insta_dig) {
                     if (report->text.find("cancels Dig") != std::string::npos ||
                         report->text.find("path") != std::string::npos) {
@@ -444,8 +440,8 @@ namespace CSP {
 
                             // prevent algorithm from re-enabling designation
                             for (auto &be: Maps::getBlock(job->pos)->block_events) {
-                                if (auto bsedp = virtual_cast<df::block_square_event_designation_priorityst>(
-                                        be)) {
+                                if (auto bsedp =
+                                    virtual_cast<df::block_square_event_designation_priorityst>(be)) {
                                     df::coord local(job->pos);
                                     local.x = local.x % 16;
                                     local.y = local.y % 16;
@@ -498,7 +494,12 @@ namespace CSP {
 
 command_result channel_safely(color_ostream &out, std::vector<std::string> &parameters);
 
+void reset_mining_labor(color_ostream&, void*) {
+
+}
+
 DFhackCExport command_result plugin_init(color_ostream &out, std::vector<PluginCommand> &commands) {
+    HandleEnablingMining = std::make_unique<EM::EventHandler>(plugin_self, reset_mining_labor, 2);
     commands.push_back(PluginCommand("channel-safely",
                                      "Automatically manage channel designations.",
                                      channel_safely,

@@ -1,10 +1,8 @@
 #include <channel-groups.h>
-#include <tile-cache.h>
 #include <inlines.h>
-#include <modules/Maps.h>
+#include <tile-cache.h>
+#include <df/block_square_event.h>
 #include <df/block_square_event_designation_priorityst.h>
-
-#include <random>
 
 // iterates the DF job list and adds channel jobs to the `jobs` container
 void ChannelJobs::load_channel_jobs() {

@@ -1,16 +1,15 @@
 #pragma once
-#include "plugin.h"
-#include "channel-manager.h"
+#include <channel-groups.h>
+#include <channel-manager.h>
+#include <dwarves-onbreak.h>
+#include <cinttypes>
+#include <random>
 
 #include <TileTypes.h>
-#include <LuaTools.h>
-#include <LuaWrapper.h>
-#include <modules/Maps.h>
+#include <df/coord.h>
 #include <df/job.h>
-
-#include <cinttypes>
-#include <unordered_set>
-#include <random>
+#include <df/unit.h>
+#include <modules/Maps.h>
 
 #define Coord(id) (id).x][(id).y
 #define COORD "%" PRIi16 ",%" PRIi16 ",%" PRIi16
@@ -195,9 +194,9 @@ inline void cancel_job(df::job* job) {
         df::tile_designation &designation = job_block->designation[x][y];
         auto type = job->job_type;
         ChannelManager::Get().jobs.erase(pos);
-        Job::removeWorker(job);
-        Job::removePostings(job, true);
-        Job::removeJob(job);
+        auto unit = Job::getWorker(job);
+        unit->status.labors[0] = false;
+        DwarvesOnBreak::register_dwarf(unit);
         job_block->flags.bits.designated = true;
         job_block->occupancy[x][y].bits.dig_marked = true;
         switch (type) {
@@ -224,11 +223,6 @@ inline void cancel_job(df::job* job) {
                 break;
         }
     }
-}
-
-inline void cancel_job(const df::coord &map_pos) {
-    cancel_job(ChannelManager::Get().jobs.find_job(map_pos));
-    ChannelManager::Get().jobs.erase(map_pos);
 }
 
 // executes dig designations for the specified tile coordinates

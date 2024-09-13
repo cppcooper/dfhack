@@ -1,9 +1,8 @@
-#include <channel-manager.h>
-#include <tile-cache.h>
 #include <inlines.h>
-
-#include <modules/EventManager.h> //hash function for df::coord
+#include <tile-cache.h>
+#include <df/block_square_event.h>
 #include <df/block_square_event_designation_priorityst.h>
+#include <df/unit.h>
 
 #define NUMARGS(...) std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value
 #define d_assert(condition, ...) \
@@ -182,7 +181,7 @@ bool ChannelManager::manage_one(const df::coord &map_pos, bool set_marker_mode, 
             }
             if (marker_mode) {
                 if (jobs.count(map_pos)) {
-                    cancel_job(map_pos);
+                    cancel_job(jobs.find_job(map_pos));
                 }
             } else if (!block->flags.bits.designated) {
                 block->flags.bits.designated = true;
