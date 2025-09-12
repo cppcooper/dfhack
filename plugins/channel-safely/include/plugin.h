@@ -2,6 +2,7 @@
 #include <Debug.h>
 
 namespace DFHack {
+    DBG_EXTERN(channelsafely, plugin);
     DBG_EXTERN(channelsafely, monitor);
     DBG_EXTERN(channelsafely, manager);
     DBG_EXTERN(channelsafely, groups);
