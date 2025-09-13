@@ -1,9 +1,11 @@
+#include <active-job-manager.h>
 #include <channel-manager.h>
 #include <tile-cache.h>
 #include <inlines.h>
 
 #include <modules/EventManager.h> //hash function for df::coord
 #include <df/block_square_event_designation_priorityst.h>
+#include <df/unit.h>
 
 #define NUMARGS(...) std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value
 #define d_assert(condition, ...) \
@@ -13,8 +15,11 @@
                 assert(0);                                                      \
             }
 
+namespace CSP {
+    extern ActiveJobManager active_job_manager;
+}
 
-df::unit* find_dwarf(const df::coord &map_pos) {
+df::unit* find_nearest_dwarf(const df::coord &map_pos) {
 
     df::unit* nearest = nullptr;
     uint32_t distance;
@@ -76,7 +81,7 @@ void ChannelManager::manage_group(const Group &group, bool set_marker_mode, bool
          * To count access, we find a random miner dwarf and count how many tile neighbours they can path to
          * */
         // find a dwarf to path from
-        df::coord miner_pos = find_dwarf(*group.begin())->pos;
+        df::coord miner_pos = find_nearest_dwarf(*group.begin())->pos;
 
         // Analyze designations
         for (const auto &pos: group) {
@@ -101,6 +106,7 @@ void ChannelManager::manage_group(const Group &group, bool set_marker_mode, bool
                     }
                 } else {
                     WARN(manager).print(" has %d access\n", access);
+                    // if any
                     cavein_possible = config.riskaverse;
                     cavein_candidates.emplace(pos, access);
                     least_access = std::min(access, least_access);
@@ -182,7 +188,9 @@ bool ChannelManager::manage_one(const df::coord &map_pos, bool set_marker_mode, 
             }
             if (marker_mode) {
                 if (jobs.count(map_pos)) {
-                    cancel_job(map_pos);
+                    // todo: this can still execute in the JobStartedEvent() stack
+                    CSP::active_job_manager.cancel(map_pos);
+                    //cancel_job(map_pos);
                 }
             } else if (!block->flags.bits.designated) {
                 block->flags.bits.designated = true;
@@ -202,6 +210,4 @@ bool ChannelManager::manage_one(const df::coord &map_pos, bool set_marker_mode, 
 void ChannelManager::mark_done(const df::coord &map_pos) {
     groups.remove(map_pos);
     jobs.erase(map_pos);
-    CSP::dignow_queue.erase(map_pos);
-    TileCache::Get().uncache(map_pos);
 }

@@ -33,7 +33,7 @@ private:
     GroupsMap groups_map;
     Groups groups;
     ChannelJobs &jobs;
-    std::set<int> free_spots;
+    std::set<int> free_spots; // ids of groups that are empty, recycling empty groups
 protected:
     void add(const df::coord &map_pos);
 public:
@@ -46,6 +46,7 @@ public:
     explicit ChannelGroups(ChannelJobs &jobs) : jobs(jobs) { groups.reserve(200); }
     void scan_one(const df::coord &map_pos);
     void scan(bool full_scan = false);
+    void scan_jobs();
     void clear();
     void remove(const df::coord &map_pos);
     Groups::const_iterator find(const df::coord &map_pos) const;

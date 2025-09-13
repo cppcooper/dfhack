@@ -20,43 +20,41 @@ void ChannelJobs::load_channel_jobs() {
     }
 }
 
-bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) {
-    if likely(Maps::isValidTilePos(map_pos)) {
-        auto p = map_pos;
-        auto ttype = *Maps::getTileType(p);
-        if (!DFHack::isOpenTerrain(ttype)) {
-            // check shared neighbour for cave-in conditions
-            df::coord neighbours[4];
-            get_connected_neighbours(map_pos, neighbours);
-            int connectedness = 4;
-            for (auto n: neighbours) {
-                if (!Maps::isValidTilePos(n) || active.count(n) || DFHack::isOpenTerrain(*Maps::getTileType(n))) {
-                    connectedness--;
-                }
+bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) const {
+    auto p = map_pos;
+    auto ttype = *Maps::getTileType(p);
+    if (!DFHack::isOpenTerrain(ttype)) {
+        // check shared neighbour for cave-in conditions
+        df::coord neighbours[4];
+        get_connected_neighbours(map_pos, neighbours);
+        int connectedness = 4;
+        for (auto n: neighbours) {
+            if (!Maps::isValidTilePos(n) || active.count(n) || DFHack::isOpenTerrain(*Maps::getTileType(n))) {
+                connectedness--;
             }
-            if (!connectedness) {
-                // do what?
-                p.z--;
-                if (!Maps::isValidTilePos(p)) return false;
-                ttype = *Maps::getTileType(p);
-                if (DFHack::isOpenTerrain(ttype) || DFHack::isFloorTerrain(ttype)) {
-                    return true;
-                }
+        }
+        if (!connectedness) {
+            // do what?
+            p.z--;
+            if (!Maps::isValidTilePos(p)) return false;
+            ttype = *Maps::getTileType(p);
+            if (DFHack::isOpenTerrain(ttype) || DFHack::isFloorTerrain(ttype)) {
+                return true;
             }
         }
     }
     return false;
 }
 
-bool ChannelJobs::possible_cavein(const df::coord &job_pos) {
-    for (auto iter : active) {
-        if (iter == job_pos) continue;
-        if (calc_distance(job_pos, iter) <= 2) {
+bool ChannelJobs::possible_cavein(const df::coord &job_pos) const {
+    for (auto dig_pos : active) {
+        if (dig_pos == job_pos) continue;
+        if (calc_distance(job_pos, dig_pos) <= 2) {
             // find neighbours
             df::coord n1[8];
             df::coord n2[8];
             get_neighbours(job_pos, n1);
-            get_neighbours(iter, n2);
+            get_neighbours(dig_pos, n2);
             // find shared neighbours
             for (int i = 0; i < 7; ++i) {
                 for (int j = i + 1; j < 8; ++j) {
@@ -181,25 +179,7 @@ void ChannelGroups::scan(bool full_scan) {
         full_scan = sometimes_scanFULLY(RNG);
     }
 
-    // save current jobs, then clear and load the current jobs
-    std::set<df::coord> last_jobs;
-    for (auto &pos : jobs) {
-        last_jobs.emplace(pos);
-    }
-    jobs.load_channel_jobs();
-    // transpose channel jobs to
-    std::set<df::coord> new_jobs;
-    std::set<df::coord> gone_jobs;
-    set_difference(last_jobs, jobs, gone_jobs);
-    set_difference(jobs, last_jobs, new_jobs);
-    INFO(groups).print("gone jobs: %zd\nnew jobs: %zd\n",gone_jobs.size(), new_jobs.size());
-    for (auto &pos : new_jobs) {
-        add(pos);
-    }
-    for (auto &pos : gone_jobs){
-        remove(pos);
-    }
-
+    scan_jobs();
     DEBUG(groups).print("  scan()\n");
     // foreach block
     for (int32_t z = mapz - 1; z >= 0; --z) {
@@ -261,6 +241,28 @@ void ChannelGroups::scan(bool full_scan) {
         }
     }
     INFO(groups).print("scan() exits\n");
+}
+
+// updates groupings of adjacent channel designations based on changes to the job list
+void ChannelGroups::scan_jobs() {
+    // save current jobs, then clear and load the current jobs
+    std::set<df::coord> last_jobs;
+    for (auto &pos : jobs) {
+        last_jobs.emplace(pos);
+    }
+    jobs.load_channel_jobs();
+    // transpose channel jobs to
+    std::set<df::coord> new_jobs;
+    std::set<df::coord> gone_jobs;
+    set_difference(last_jobs, jobs, gone_jobs);
+    set_difference(jobs, last_jobs, new_jobs);
+    INFO(groups).print("gone jobs: %zd\nnew jobs: %zd\n",gone_jobs.size(), new_jobs.size());
+    for (auto &pos : new_jobs) {
+        add(pos);
+    }
+    for (auto &pos : gone_jobs){
+        remove(pos);
+    }
 }
 
 // clears out the containers for unloading maps or disabling the plugin
