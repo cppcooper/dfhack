@@ -257,7 +257,7 @@ void ActiveJobManager::on_job_start(df::job* job) {
             * test if the game crashes or the jobs start polluting the list indefinitely
             * prediction is that the jobs will cause the tiles to flash forever
         */
-        if (remove_worker(job) == 0) DEBUG(jobs).print("  Unable to remove worker from job.");
+        if (remove_worker(job) == 0) { DEBUG(jobs).print("  Unable to remove worker from job."); }
         cancel_queue.emplace(pos);
         return;
     }

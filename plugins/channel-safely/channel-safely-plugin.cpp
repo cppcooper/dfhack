@@ -209,7 +209,6 @@ namespace CSP {
     }
 
     void NewReportEvent(color_ostream &out, void* r) {
-        int32_t tick = world->frame_counter;
         auto report_id = (int32_t)(intptr_t(r));
         df::report* report = df::report::find(report_id);
         if (!report) {
@@ -412,7 +411,7 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
         out.print("  %-20s\t%s\n", "risk-averse: ", config.riskaverse ? "on." : "off.");
         out.print("  %-20s\t%s\n", "monitoring: ", config.monitoring ? "on." : "off.");
         out.print("  %-20s\t%s\n", "require-vision: ", config.require_vision ? "on." : "off.");
-        //out.print("  %-20s\t%s\n", "insta-dig: ", config.insta_dig ? "on." : "off.");
+        out.print("  %-20s\t%s\n", "insta-dig: ", config.insta_dig ? "on." : "off.");
         out.print("  %-20s\t%s\n", "resurrect: ", config.resurrect ? "on." : "off.");
         out.print(" SETTINGS:\n");
         out.print("  %-20s\t%" PRIi32 "\n", "refresh-freq: ", config.refresh_freq);
