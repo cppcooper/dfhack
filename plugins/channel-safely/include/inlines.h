@@ -7,10 +7,12 @@
 #include <LuaWrapper.h>
 #include <modules/Maps.h>
 #include <df/job.h>
+#include <df/unit.h>
 
 #include <cinttypes>
 #include <unordered_set>
 #include <random>
+#include <df/general_ref.h>
 
 #define Coord(id) (id).x][(id).y
 #define COORD "%" PRIi16 ",%" PRIi16 ",%" PRIi16
@@ -94,7 +96,10 @@ inline bool is_dig_job(const df::job* job) {
 }
 
 inline bool is_channel_job(const df::job* job) {
-    return job && (job->job_type == df::job_type::DigChannel);
+    return job
+    && job->id >= 0
+    && (job->job_type == df::job_type::DigChannel)
+    && Maps::isValidTilePos(job->pos);
 }
 
 inline bool is_group_job(const ChannelGroups &groups, const df::job* job) {
@@ -150,7 +155,8 @@ inline bool is_safe_to_dig_down(const df::coord &map_pos) {
             // todo: remove? this is probably not useful.. and seems like the only considerable difference to is_safe_fall (aside from where each stops looking)
             // the starting tile is open space, that's obviously not safe
             return false;
-        } else if (!DFHack::isOpenTerrain(type)) {
+        }
+        if (!DFHack::isOpenTerrain(type)) {
             // a tile after the first one is not open space
             return true;
         }
@@ -185,14 +191,34 @@ inline bool has_any_groups_above(const ChannelGroups &groups, const Group &group
     return false;
 }
 
+inline int remove_worker(df::job* job) {
+    df::unit* worker = Job::getWorker(job);
+    if unlikely(!worker) return 0;
+    auto R = std::erase_if(job->general_refs, [](df::general_ref* ref) {
+        return ref->getType() == general_ref_type::UNIT_WORKER;
+    });
+    if likely(R) {
+        worker->job.current_job = nullptr;
+    }
+    return R;
+}
+
 inline void cancel_job(df::job* job) {
     if (job) {
+        if (job->id < 0) {
+            // seems like the event manager maybe gave us a fubar event
+            Job::removePostings(job, true);
+            return;
+        }
         const df::coord &pos = job->pos;
         df::map_block* job_block = Maps::getTileBlock(pos);
+        if (!job_block) {
+            INFO(jobs).print("we dun fukked it");
+            return;
+        }
         uint16_t x, y;
         x = pos.x % 16;
         y = pos.y % 16;
-        df::tile_designation &designation = job_block->designation[x][y];
         auto type = job->job_type;
         ChannelManager::Get().jobs.erase(pos);
         Job::removeWorker(job);
@@ -200,6 +226,7 @@ inline void cancel_job(df::job* job) {
         Job::removeJob(job);
         job_block->flags.bits.designated = true;
         job_block->occupancy[x][y].bits.dig_marked = true;
+        df::tile_designation &designation = job_block->designation[x][y];
         switch (type) {
             case job_type::Dig:
                 designation.bits.dig = df::tile_dig_designation::Default;
@@ -227,8 +254,12 @@ inline void cancel_job(df::job* job) {
 }
 
 inline void cancel_job(const df::coord &map_pos) {
-    cancel_job(ChannelManager::Get().jobs.find_job(map_pos));
-    ChannelManager::Get().jobs.erase(map_pos);
+    if (const auto job = ChannelManager::Get().jobs.find_job(map_pos)) {
+        cancel_job(job);
+        ChannelManager::Get().jobs.erase(map_pos);
+    } else {
+        INFO(jobs).print("Cannot cancel the job at (" COORD "). It no longer exists as a job, it likely finished before we could cancel.\n", COORDARGS(map_pos));
+    }
 }
 
 // executes dig designations for the specified tile coordinates
