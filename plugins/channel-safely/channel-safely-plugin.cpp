@@ -109,7 +109,8 @@ enum SettingConfigData {
     REFRESH_RATE,
     MONITOR_RATE,
     IGNORE_THRESH,
-    FALL_THRESH
+    FALL_THRESH,
+    WATCH_DURATION
 };
 
 // dig-now.cpp
@@ -173,7 +174,7 @@ namespace CSP {
             try {
                 pfeature.ival(MONITOR) = config.monitoring;
                 pfeature.ival(VISION) = config.require_vision;
-                pfeature.ival(INSTADIG) = false; //config.insta_dig;
+                pfeature.ival(INSTADIG) = config.insta_dig;
                 pfeature.ival(RESURRECT) = config.resurrect;
                 pfeature.ival(RISKAVERSE) = config.riskaverse;
 
@@ -181,6 +182,7 @@ namespace CSP {
                 psetting.ival(MONITOR_RATE) = config.monitor_freq;
                 psetting.ival(IGNORE_THRESH) = config.ignore_threshold;
                 psetting.ival(FALL_THRESH) = config.fall_threshold;
+                psetting.ival(WATCH_DURATION) = config.res_watch_duration;
             } catch (std::exception &e) {
                 ERR(plugin).print("%s\n", e.what());
             }
@@ -199,7 +201,7 @@ namespace CSP {
             try {
                 config.monitoring = pfeature.ival(MONITOR);
                 config.require_vision = pfeature.ival(VISION);
-                config.insta_dig = false; //pfeature.ival(INSTADIG);
+                config.insta_dig = pfeature.ival(INSTADIG);
                 config.resurrect = pfeature.ival(RESURRECT);
                 config.riskaverse = pfeature.ival(RISKAVERSE);
 
@@ -207,6 +209,7 @@ namespace CSP {
                 config.fall_threshold = psetting.ival(FALL_THRESH);
                 config.refresh_freq = psetting.ival(REFRESH_RATE);
                 config.monitor_freq = psetting.ival(MONITOR_RATE);
+                config.res_watch_duration = psetting.ival(WATCH_DURATION);
             } catch (std::exception &e) {
                 ERR(plugin).print("%s\n", e.what());
             }
@@ -621,8 +624,8 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
                 } else if (parameters[1] == "require-vision") {
                     config.require_vision = state;
                 } else if (parameters[1] == "insta-dig") {
-                    //config.insta_dig = state;
-                    config.insta_dig = false;
+                    config.insta_dig = state;
+                    //config.insta_dig = false;
                 } else if (parameters[1] == "resurrect") {
                     if (state != config.resurrect) {
                         config.resurrect = state;
@@ -636,6 +639,8 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
                     config.refresh_freq = std::abs(std::stol(parameters[2]));
                 } else if (parameters[1] == "monitor-freq" && set && parameters.size() == 3) {
                     config.monitor_freq = std::abs(std::stol(parameters[2]));
+                } else if (parameters[1] == "watch-duration" && set && parameters.size() == 3) {
+                    config.res_watch_duration = std::abs(std::stol(parameters[2]));
                 } else if (parameters[1] == "ignore-threshold" && set && parameters.size() == 3) {
                     config.ignore_threshold = std::abs(std::stol(parameters[2]));
                 } else if (parameters[1] == "fall-threshold" && set && parameters.size() == 3) {
@@ -665,6 +670,7 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
         out.print(" SETTINGS:\n");
         out.print("  %-20s\t%" PRIi32 "\n", "refresh-freq: ", config.refresh_freq);
         out.print("  %-20s\t%" PRIi32 "\n", "monitor-freq: ", config.monitor_freq);
+        out.print("  %-20s\t%" PRIi32 "\n", "watch-duration: ", config.res_watch_duration);
         out.print("  %-20s\t%" PRIu8 "\n", "ignore-threshold: ", config.ignore_threshold);
         out.print("  %-20s\t%" PRIu8 "\n", "fall-threshold: ", config.fall_threshold);
     }
