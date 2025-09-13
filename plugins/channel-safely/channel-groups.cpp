@@ -20,57 +20,6 @@ void ChannelJobs::load_channel_jobs() {
     }
 }
 
-bool ChannelJobs::has_cavein_conditions(const df::coord &map_pos) const {
-    auto p = map_pos;
-    auto ttype = *Maps::getTileType(p);
-    if (!DFHack::isOpenTerrain(ttype)) {
-        // check shared neighbour for cave-in conditions
-        df::coord neighbours[4];
-        get_connected_neighbours(map_pos, neighbours);
-        int connectedness = 4;
-        for (auto n: neighbours) {
-            if (!Maps::isValidTilePos(n) || active.count(n) || DFHack::isOpenTerrain(*Maps::getTileType(n))) {
-                connectedness--;
-            }
-        }
-        if (!connectedness) {
-            // do what?
-            p.z--;
-            if (!Maps::isValidTilePos(p)) return false;
-            ttype = *Maps::getTileType(p);
-            if (DFHack::isOpenTerrain(ttype) || DFHack::isFloorTerrain(ttype)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool ChannelJobs::possible_cavein(const df::coord &job_pos) const {
-    for (auto dig_pos : active) {
-        if (dig_pos == job_pos) continue;
-        if (calc_distance(job_pos, dig_pos) <= 2) {
-            // find neighbours
-            df::coord n1[8];
-            df::coord n2[8];
-            get_neighbours(job_pos, n1);
-            get_neighbours(dig_pos, n2);
-            // find shared neighbours
-            for (int i = 0; i < 7; ++i) {
-                for (int j = i + 1; j < 8; ++j) {
-                    if (n1[i] == n2[j]) {
-                        if (has_cavein_conditions(n1[i])) {
-                            WARN(jobs).print("Channel-Safely::jobs: Cave-in conditions detected at (" COORD ")\n", COORDARGS(n1[i]));
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
 // adds map_pos to a group if an adjacent one exists, or creates one if none exist... if multiple exist they're merged into the first found
 void ChannelGroups::add(const df::coord &map_pos) {
     // if we've already added this, we don't need to do it again
