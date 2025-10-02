@@ -1,5 +1,6 @@
 #include <active-job-manager.h>
 #include <inlines.h>
+#include <on-tick.h>
 #include <ranges>
 
 #include <tile-cache.h>
@@ -11,6 +12,7 @@
 #include <df/report.h>
 
 namespace CSP {
+    extern OnTick tick_it_master;;
     extern std::unordered_set<df::coord> dignow_queue;
 }
 
@@ -141,23 +143,17 @@ void ActiveJobManager::cleanup() {
 }
 
 void ActiveJobManager::on_update(color_ostream &out) {
+    INFO(jobs).print("onUpdate()");
     int32_t tick = df::global::world->frame_counter;
     // clean up stale df::job*
     if ((config.monitoring || config.resurrect) && tick - last_tick >= 1) {
         last_tick = tick;
         cleanup();
     }
-    // cancel jobs in the cancel queue
-    for (auto pos : cancel_queue) {
-        cancel_job(pos);
-        if (!ChannelManager::Get().manage_one(pos, true, true)) {
-            DEBUG(jobs).print(" <- JobStartedEvent(): failed to cancel a job and marker the designation.");
-        }
-    }
-    cancel_queue.clear();
+
 
     // monitoring activity
-    if (config.monitoring && tick - last_monitor_tick >= config.monitor_freq) {
+    if (config.monitoring && tick - last_monitor_tick >= 666){//config.monitor_freq) {
         last_monitor_tick = tick;
         TRACE(monitor).print("OnUpdate() monitoring now\n");
 
@@ -166,70 +162,39 @@ void ActiveJobManager::on_update(color_ostream &out) {
             if unlikely(!ajob.worker) continue;
             if unlikely(!Units::isAlive(ajob.worker)) continue;
             if unlikely(!Maps::isValidTilePos(ajob.pos)) continue;
+            if likely(ajob.worker->pos != ajob.pos) continue;
+            if likely(is_safe_fall(ajob.pos)) continue;
 
-            // check for fall safety
-            if (ajob.worker->pos == ajob.pos && !is_safe_fall(ajob.pos)) {
-                // unsafe
-                WARN(monitor).print(" -> unsafe job\n");
-                Job::removeWorker(ajob.job);
+            // unsafe
+            WARN(monitor).print(" -> unsafe job\n");
+            Job::removeWorker(ajob.job);
 
-                // decide to insta-dig, marker mode, or break a few eggs to get it done before unbreaking them
-                if (config.insta_dig) {
-                    // delete the job
-                    Job::removeJob(ajob.job);
-                    // queue digging the job instantly
-                    CSP::dignow_queue.emplace(ajob.pos);
-                    DEBUG(monitor).print(" -> insta-dig\n");
-                } else if (!config.resurrect) {
-                    // set marker mode
-                    Maps::getTileOccupancy(ajob.pos)->bits.dig_marked = true;
+            if (!config.resurrect) {
+                // set marker mode
+                Maps::getTileOccupancy(ajob.pos)->bits.dig_marked = true;
 
-                    using df_bsedp = df::block_square_event_designation_priorityst;
-                    // prevent algorithm from re-enabling designation
-                    for (auto &blk_evt: Maps::getBlock(ajob.pos)->block_events) {
-                        if (auto bsedp = virtual_cast<df_bsedp>(blk_evt)) {
-                            df::coord local(ajob.pos);
-                            local.x = local.x % 16;
-                            local.y = local.y % 16;
-                            bsedp->priority[Coord(local)] = config.ignore_threshold * 1000 + 1;
-                            break;
-                        }
+                using df_bsedp = df::block_square_event_designation_priorityst;
+                // prevent algorithm from re-enabling designation
+                for (auto &blk_evt: Maps::getBlock(ajob.pos)->block_events) {
+                    if (auto bsedp = virtual_cast<df_bsedp>(blk_evt)) {
+                        df::coord local(ajob.pos);
+                        local.x = local.x % 16;
+                        local.y = local.y % 16;
+                        bsedp->priority[Coord(local)] = config.ignore_threshold * 1000 + 1;
+                        break;
                     }
-                    DEBUG(monitor).print(" -> set marker mode\n");
                 }
+                DEBUG(monitor).print(" -> set marker mode\n");
             }
         }
         TRACE(monitor).print("OnUpdate() monitoring done\n");
     }
-
-    // Resurrect Dead Workers
-    if (config.resurrect && tick - last_resurrect_tick >= 1) {
-        last_resurrect_tick = tick;
-        for (auto [id, aworker] : active_workers) {
-            if (Units::isAlive(aworker.worker)) {
-                continue;
-            }
-            resurrect(out, aworker.id);
-            df::coord lowest = simulate_fall(aworker.last_safe_pos);
-            Units::teleport(aworker.worker, lowest);
-        }
-        // resurrect any dead endangered units
-        for (auto unit : df::global::world->units.all) {
-            if (!endangered_units.contains(unit->id) || !safe_locations.contains(unit->id)) {
-                continue;
-            }
-            if (Units::isAlive(unit)) {
-                continue;
-            }
-            resurrect(out, unit->id);
-            df::coord lowest = simulate_fall(safe_locations[unit->id]);
-            Units::teleport(unit, lowest);
-        }
-    }
 }
 
+extern DFHack::EventManager::EventHandler resurrectHandler;
+
 void ActiveJobManager::on_job_start(df::job* job) {
-    if (!ChannelManager::Get().exists(job->pos)) {
+    if (!ChannelManager::Get().contains(job->pos)) {
         ChannelManager::Get().build_groups(false);
     }
     df::unit* worker = Job::getWorker(job);
@@ -246,6 +211,11 @@ void ActiveJobManager::on_job_start(df::job* job) {
         active_jobs.emplace(ajob.id,ajob);
         active_workers.emplace(ajob.id, aworker);
         safe_locations[aworker.id] = aworker.last_safe_pos;
+        if (config.resurrect && !CSP::tick_it_master.resurrect_queued) {
+            CSP::tick_it_master.resurrect_queued = true;
+            // todo: verify this means NEXT tick.. or just use 0
+            EventManager::registerTick(resurrectHandler,1);
+        }
     }
     // cavein prevention is the rest of the function
     if (!config.riskaverse) {
@@ -352,10 +322,73 @@ void ActiveJobManager::on_report_event(df::report* report) {
                         DEBUG(plugin).print(" [id %d] is/was an endangereed worker, we'll extend tracking them too.\n", aworker.id);
                     }
                 }
+                if (!CSP::tick_it_master.resurrect_queued) {
+                    CSP::tick_it_master.resurrect_queued = true;
+                    // todo: verify this means NEXT tick.. or just use 0
+                    EventManager::registerTick(resurrectHandler,1);
+                }
             }
             break;
         default:
             break;
+    }
+}
+
+extern DFHack::EventManager::EventHandler cancelHandler;
+
+void ActiveJobManager::cancel(df::coord site) {
+    if (!CSP::tick_it_master.cancel_queued) {
+        CSP::tick_it_master.cancel_queued = true;
+        // todo: verify this means NEXT tick.. or just use 0
+        EventManager::registerTick(cancelHandler,1);
+    }
+    cancel_queue.emplace(site);
+}
+
+void ActiveJobManager::handle_cancellation() {
+    // cancel jobs in the cancel queue
+    ChannelJobs jobs;
+    jobs.load_channel_jobs();
+    for (auto pos : cancel_queue) {
+        INFO(jobs).print("Canceling job: " COORD, COORDARGS(pos));
+        if (auto job_ptr = jobs.find_job(pos); job_ptr) {
+            if unlikely(job_ptr->id < 0) {
+                Job::removePostings(job_ptr, true);
+                revert_designation(pos, job_ptr->job_type);
+                continue;
+            }
+            Job::removeWorker(job_ptr);
+            Job::removePostings(job_ptr, true);
+            Job::removeJob(job_ptr);
+            revert_designation(pos, job_ptr->job_type);
+        }
+    }
+    cancel_queue.clear();
+}
+
+void ActiveJobManager::handle_resurrect(color_ostream &out) {
+    if (!config.resurrect) {
+        return;
+    }
+    for (auto [id, aworker] : active_workers) {
+        if (Units::isAlive(aworker.worker)) {
+            continue;
+        }
+        resurrect(out, aworker.id);
+        df::coord lowest = simulate_fall(aworker.last_safe_pos);
+        Units::teleport(aworker.worker, lowest);
+    }
+    // resurrect any dead endangered units
+    for (auto unit : df::global::world->units.all) {
+        if (!endangered_units.contains(unit->id) || !safe_locations.contains(unit->id)) {
+            continue;
+        }
+        if (Units::isAlive(unit)) {
+            continue;
+        }
+        resurrect(out, unit->id);
+        df::coord lowest = simulate_fall(safe_locations[unit->id]);
+        Units::teleport(unit, lowest);
     }
 }
 
@@ -366,5 +399,9 @@ void ActiveJobManager::clear() {
     active_workers.clear();
     active_jobs.clear();
     cancel_queue.clear();
+}
+
+bool ActiveJobManager::needs_resurrect_queued() {
+    return !active_workers.empty() || !endangered_units.empty();
 }
 

@@ -73,6 +73,7 @@ This skeletal logic has not been kept up-to-date since ~v0.5
 
 #include <ranges>
 #include <cinttypes>
+#include <on-tick.h>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -117,15 +118,12 @@ enum SettingConfigData {
 };
 
 // dig-now.cpp
+extern void refresh(DFHack::color_ostream&, void*);
 
 namespace CSP {
+    OnTick tick_it_master;
     ActiveJobManager active_job_manager;
     std::unordered_set<df::coord> dignow_queue;
-
-    static int32_t last_tick = 0;
-    static int32_t last_monitor_tick = 0;
-    static int32_t last_refresh_tick = 0;
-    static int32_t last_resurrect_tick = 0;
 
     void ClearData() {
         ChannelManager::Get().destroy_groups();
@@ -218,30 +216,6 @@ namespace CSP {
         }
         active_job_manager.on_report_event(report);
     }
-
-    void OnUpdate(color_ostream &out) {
-        if (World::ReadPauseState())
-            return;
-
-        active_job_manager.on_update(out);
-        int32_t tick = world->frame_counter;
-        // Refreshing the group data with full scanning
-        if (tick - last_refresh_tick >= config.refresh_freq) {
-            last_refresh_tick = tick;
-            TRACE(monitor).print("OnUpdate() refreshing now\n");
-            if (config.insta_dig) {
-                TRACE(monitor).print(" -> evaluate dignow queue\n");
-                for (auto iter = dignow_queue.begin(); iter != dignow_queue.end();) {
-                    auto map_pos = *iter;
-                    dig_now(out, map_pos); // teleports units to the bottom of a simulated fall
-                    ChannelManager::Get().mark_done(map_pos);
-                    iter = dignow_queue.erase(iter);
-                }
-            }
-            UnpauseEvent(false);
-            TRACE(monitor).print("OnUpdate() refresh done\n");
-        }
-    }
 }
 
 command_result channel_safely(color_ostream &out, std::vector<std::string> &parameters);
@@ -250,7 +224,7 @@ DFhackCExport command_result plugin_init(color_ostream &out, std::vector<PluginC
     commands.push_back(PluginCommand("channel-safely",
                                      "Automatically manage channel designations.",
                                      channel_safely,
-                                     false));
+                                     false));;
     return CR_OK;
 }
 
@@ -260,10 +234,6 @@ DFhackCExport command_result plugin_shutdown(color_ostream &out) {
 }
 
 DFhackCExport command_result plugin_load_site_data (color_ostream &out) {
-    CSP::last_tick = 0;
-    CSP::last_monitor_tick = 0;
-    CSP::last_refresh_tick = 0;
-    CSP::last_resurrect_tick = 0;
 
     CSP::LoadSettings();
     if (enabled) {
@@ -281,17 +251,21 @@ DFhackCExport command_result plugin_enable(color_ostream &out, bool enable) {
 
     if (enable && !enabled) {
         // register events to check jobs / update tracking
+        //EM::EventHandler updateHandler(plugin_self,CSP::OnUpdate, 0);
         EM::EventHandler jobStartHandler(plugin_self,CSP::JobStartedEvent, 0);
         EM::EventHandler jobCompletionHandler(plugin_self,CSP::JobCompletedEvent, 0);
         EM::EventHandler reportHandler(plugin_self,CSP::NewReportEvent, 0);
+        //EM::registerTick(updateHandler,1);
+        //EM::registerListener(EventType::TICK, updateHandler);
         EM::registerListener(EventType::REPORT, reportHandler);
         EM::registerListener(EventType::JOB_STARTED, jobStartHandler);
         EM::registerListener(EventType::JOB_COMPLETED, jobCompletionHandler);
         // manage designations to start off (first time building groups [very important])
         out.print("channel-safely: enabled!\n");
-        CSP::UnpauseEvent(true);
+        refresh(out, nullptr); // scans and queues the next tick event
     } else if (!enable) {
         // don't need the groups if the plugin isn't going to be enabled
+        CSP::ClearData();
         EM::unregisterAll(plugin_self);
         out.print("channel-safely: disabled!\n");
     }
@@ -326,7 +300,6 @@ DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_chan
 }
 
 DFhackCExport command_result plugin_onupdate(color_ostream &out, state_change_event event) {
-    CSP::OnUpdate(out);
     return DFHack::CR_OK;
 }
 
