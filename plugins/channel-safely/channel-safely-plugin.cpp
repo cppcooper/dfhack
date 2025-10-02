@@ -143,7 +143,7 @@ namespace CSP {
                 pfeature.ival(RISKAVERSE) = config.riskaverse;
 
                 psetting.ival(REFRESH_RATE) = config.refresh_freq;
-                psetting.ival(MONITOR_RATE) = config.monitor_freq;
+                //psetting.ival(MONITOR_RATE) = config.monitor_freq;
                 psetting.ival(IGNORE_THRESH) = config.ignore_threshold;
                 psetting.ival(FALL_THRESH) = config.fall_threshold;
                 psetting.ival(WATCH_DURATION) = config.res_watch_duration;
@@ -172,7 +172,7 @@ namespace CSP {
                 config.ignore_threshold = psetting.ival(IGNORE_THRESH);
                 config.fall_threshold = psetting.ival(FALL_THRESH);
                 config.refresh_freq = psetting.ival(REFRESH_RATE);
-                config.monitor_freq = psetting.ival(MONITOR_RATE);
+                //config.monitor_freq = psetting.ival(MONITOR_RATE);
                 config.res_watch_duration = psetting.ival(WATCH_DURATION);
             } catch (std::exception &e) {
                 ERR(plugin).print("%s\n", e.what());
@@ -181,6 +181,7 @@ namespace CSP {
     }
 
     void UnpauseEvent(bool full_scan = false){
+        SaveSettings();
         DEBUG(plugin).print("UnpauseEvent()\n");
         ChannelManager::Get().build_groups(full_scan);
         ChannelManager::Get().manage_groups();
@@ -383,8 +384,8 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
                     }
                 } else if (parameters[1] == "refresh-freq" && set && parameters.size() == 3) {
                     config.refresh_freq = std::abs(std::stol(parameters[2]));
-                } else if (parameters[1] == "monitor-freq" && set && parameters.size() == 3) {
-                    config.monitor_freq = std::abs(std::stol(parameters[2]));
+                /*} else if (parameters[1] == "monitor-freq" && set && parameters.size() == 3) {
+                    config.monitor_freq = std::abs(std::stol(parameters[2]));*/
                 } else if (parameters[1] == "watch-duration" && set && parameters.size() == 3) {
                     config.res_watch_duration = std::abs(std::stol(parameters[2]));
                 } else if (parameters[1] == "ignore-threshold" && set && parameters.size() == 3) {
@@ -415,7 +416,7 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
         out.print("  %-20s\t%s\n", "resurrect: ", config.resurrect ? "on." : "off.");
         out.print(" SETTINGS:\n");
         out.print("  %-20s\t%" PRIi32 "\n", "refresh-freq: ", config.refresh_freq);
-        out.print("  %-20s\t%" PRIi32 "\n", "monitor-freq: ", config.monitor_freq);
+        //out.print("  %-20s\t%" PRIi32 "\n", "monitor-freq: ", config.monitor_freq);
         out.print("  %-20s\t%" PRIi32 "\n", "watch-duration: ", config.res_watch_duration);
         out.print("  %-20s\t%" PRIu8 "\n", "ignore-threshold: ", config.ignore_threshold);
         out.print("  %-20s\t%" PRIu8 "\n", "fall-threshold: ", config.fall_threshold);
