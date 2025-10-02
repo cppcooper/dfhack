@@ -7,6 +7,7 @@
 
 #include <unordered_set>
 #include <unordered_map>
+#include <ranges>
 
 using namespace DFHack;
 
@@ -21,25 +22,16 @@ using namespace DFHack;
  */
 class ChannelJobs {
 private:
-    std::unordered_map<df::coord, df::job*> jobs;
-    std::unordered_set<df::coord> locations;
+    std::unordered_map<df::coord, df::job*> job_ptrs;
 public:
     void load_channel_jobs();
     void clear() {
-        locations.clear();
-        jobs.clear();
+        job_ptrs.clear();
     }
-    int count(const df::coord &map_pos) const { return locations.count(map_pos); }
-    std::unordered_set<df::coord>::iterator erase(const df::coord &map_pos) {
-        jobs.erase(map_pos);
-        auto iter = locations.find(map_pos);
-        if (iter != locations.end()) {
-            return locations.erase(iter);
-        }
-        return iter;
+    auto keys() const { return job_ptrs | std::views::keys; }
+    void erase(const df::coord &pos) {
+        job_ptrs.erase(pos);
     }
-    df::job* find_job(const df::coord &map_pos) const { return jobs.count(map_pos) ? jobs.find(map_pos)->second : nullptr; }
-    std::unordered_set<df::coord>::const_iterator find(const df::coord &map_pos) const { return locations.find(map_pos); }
-    std::unordered_set<df::coord>::const_iterator begin() const { return locations.begin(); }
-    std::unordered_set<df::coord>::const_iterator end() const { return locations.end(); }
+    bool contains(const df::coord &pos) const { return job_ptrs.contains(pos); }
+    df::job* find_job(const df::coord &pos) const { return job_ptrs.contains(pos) ? job_ptrs.find(pos)->second : nullptr; }
 };

@@ -13,12 +13,14 @@
 #include <unordered_set>
 #include <random>
 #include <df/general_ref.h>
+#include "active-job-manager.h"
 
 #define Coord(id) (id).x][(id).y
 #define COORD "%" PRIi16 ",%" PRIi16 ",%" PRIi16
 #define COORDARGS(id) (id).x, (id).y, (id).z
 
 namespace CSP {
+    extern ActiveJobManager active_job_manager;
     extern std::unordered_set<df::coord> dignow_queue;
 }
 
@@ -29,7 +31,7 @@ inline uint32_t calc_distance(df::coord p1, df::coord p2) {
     return distance;
 }
 
-inline void get_connected_neighbours(const df::coord &map_pos, df::coord(&neighbours)[4]) {
+inline void get_grid_neighbours(const df::coord &map_pos, df::coord* neighbours) {
     neighbours[0] = map_pos;
     neighbours[1] = map_pos;
     neighbours[2] = map_pos;
@@ -63,7 +65,7 @@ inline uint8_t count_accessibility(const df::coord &unit_pos, const df::coord &m
     df::coord neighbours[8];
     df::coord connections[4];
     get_neighbours(map_pos, neighbours);
-    get_connected_neighbours(map_pos, connections);
+    get_grid_neighbours(map_pos, connections);
     uint8_t accessibility = Maps::canWalkBetween(unit_pos, map_pos) ? 1 : 0;
     for (auto n: neighbours) {
         if unlikely(!Maps::isValidTilePos(n)) continue;
@@ -103,7 +105,7 @@ inline bool is_channel_job(const df::job* job) {
 }
 
 inline bool is_group_job(const ChannelGroups &groups, const df::job* job) {
-    return groups.count(job->pos);
+    return groups.contains(job->pos);
 }
 
 inline bool is_dig_designation(const df::tile_designation &designation) {
@@ -172,7 +174,7 @@ inline bool has_unit(const df::tile_occupancy* occupancy) {
 inline bool has_group_above(const ChannelGroups &groups, const df::coord &map_pos) {
     df::coord above(map_pos);
     above.z++;
-    if (groups.count(above)) {
+    if (groups.contains(above)) {
         return true;
     }
     return false;
@@ -183,7 +185,7 @@ inline bool has_any_groups_above(const ChannelGroups &groups, const Group &group
     for (auto &pos : group) {
         df::coord above(pos);
         above.z++;
-        if (groups.count(above)) {
+        if (groups.contains(above)) {
             return true;
         }
     }
@@ -203,62 +205,36 @@ inline int remove_worker(df::job* job) {
     return R;
 }
 
-inline void cancel_job(df::job* job) {
-    if (job) {
-        if (job->id < 0) {
-            // seems like the event manager maybe gave us a fubar event
-            Job::removePostings(job, true);
-            return;
-        }
-        const df::coord &pos = job->pos;
-        df::map_block* job_block = Maps::getTileBlock(pos);
-        if (!job_block) {
-            INFO(jobs).print("we dun fukked it");
-            return;
-        }
-        uint16_t x, y;
-        x = pos.x % 16;
-        y = pos.y % 16;
-        auto type = job->job_type;
-        ChannelManager::Get().jobs.erase(pos);
-        Job::removeWorker(job);
-        Job::removePostings(job, true);
-        Job::removeJob(job);
-        job_block->flags.bits.designated = true;
-        job_block->occupancy[x][y].bits.dig_marked = true;
-        df::tile_designation &designation = job_block->designation[x][y];
-        switch (type) {
-            case job_type::Dig:
-                designation.bits.dig = df::tile_dig_designation::Default;
-                break;
-            case job_type::CarveUpwardStaircase:
-                designation.bits.dig = df::tile_dig_designation::UpStair;
-                break;
-            case job_type::CarveDownwardStaircase:
-                designation.bits.dig = df::tile_dig_designation::DownStair;
-                break;
-            case job_type::CarveUpDownStaircase:
-                designation.bits.dig = df::tile_dig_designation::UpDownStair;
-                break;
-            case job_type::CarveRamp:
-                designation.bits.dig = df::tile_dig_designation::Ramp;
-                break;
-            case job_type::DigChannel:
-                designation.bits.dig = df::tile_dig_designation::Channel;
-                break;
-            default:
-                designation.bits.dig = df::tile_dig_designation::No;
-                break;
-        }
-    }
-}
-
-inline void cancel_job(const df::coord &map_pos) {
-    if (const auto job = ChannelManager::Get().jobs.find_job(map_pos)) {
-        cancel_job(job);
-        ChannelManager::Get().jobs.erase(map_pos);
-    } else {
-        INFO(jobs).print("Cannot cancel the job at (" COORD "). It no longer exists as a job, it likely finished before we could cancel.\n", COORDARGS(map_pos));
+inline void revert_designation(const df::coord &pos, df::job_type type) {
+    df::map_block* job_block = Maps::getTileBlock(pos);
+    uint16_t x, y;
+    x = pos.x % 16;
+    y = pos.y % 16;
+    job_block->occupancy[x][y].bits.dig_marked = true;
+    df::tile_designation &designation = job_block->designation[x][y];
+    switch (type) {
+        case job_type::Dig:
+            designation.bits.dig = df::tile_dig_designation::Default;
+            break;
+        case job_type::CarveUpwardStaircase:
+            designation.bits.dig = df::tile_dig_designation::UpStair;
+            break;
+        case job_type::CarveDownwardStaircase:
+            designation.bits.dig = df::tile_dig_designation::DownStair;
+            break;
+        case job_type::CarveUpDownStaircase:
+            designation.bits.dig = df::tile_dig_designation::UpDownStair;
+            break;
+        case job_type::CarveRamp:
+            designation.bits.dig = df::tile_dig_designation::Ramp;
+            break;
+        case job_type::DigChannel:
+            designation.bits.dig = df::tile_dig_designation::Channel;
+            break;
+        default:
+            job_block->occupancy[x][y].bits.dig_marked = false;
+            designation.bits.dig = df::tile_dig_designation::No;
+            break;
     }
 }
 
@@ -350,7 +326,9 @@ inline void resurrect(color_ostream &out, const int32_t &unit) {
 template<class Ctr1, class Ctr2, class Ctr3>
 void set_difference(const Ctr1 &c1, const Ctr2 &c2, Ctr3 &c3) {
     for (const auto &a : c1) {
+        // c1 - c2
         if (!c2.count(a)) {
+            // add every element a in c1 that is not in c2
             c3.emplace(a);
         }
     }

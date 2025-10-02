@@ -59,6 +59,9 @@ public:
     void on_job_start(df::job* job);
     void on_job_completed(color_ostream &out, df::job* job);
     void on_report_event(df::report* report);
-    void cancel(df::coord site) {cancel_queue.emplace(site);}
+    void cancel(df::coord site);
+    void handle_cancellation();
+    void handle_resurrect(color_ostream &out);
     void clear();
+    bool needs_resurrect_queued();
 };

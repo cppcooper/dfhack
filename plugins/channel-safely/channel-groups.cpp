@@ -8,14 +8,13 @@
 
 // iterates the DF job list and adds channel jobs to the `jobs` container
 void ChannelJobs::load_channel_jobs() {
-    locations.clear();
+    job_ptrs.clear();
     df::job_list_link* node = df::global::world->jobs.list.next;
     while (node) {
         df::job* job = node->item;
         node = node->next;
         if (is_channel_job(job)) {
-            locations.emplace(job->pos);
-            jobs.emplace(job->pos, job);
+            job_ptrs[job->pos] = job;
         }
     }
 }
@@ -23,7 +22,7 @@ void ChannelJobs::load_channel_jobs() {
 // adds map_pos to a group if an adjacent one exists, or creates one if none exist... if multiple exist they're merged into the first found
 void ChannelGroups::add(const df::coord &map_pos) {
     // if we've already added this, we don't need to do it again
-    if (groups_map.count(map_pos)) {
+    if (pos_to_groups_idx_map.count(map_pos)) {
         return;
     }
     /* We need to add map_pos to an existing group if possible...
@@ -40,63 +39,65 @@ void ChannelGroups::add(const df::coord &map_pos) {
     for (auto &neighbour: neighbors) {
         if unlikely(!Maps::isValidTilePos(neighbour)) continue;
         // go to the next neighbour if this one doesn't have a group
-        if (!groups_map.count(neighbour)) {
-            TRACE(groups).print(" -> neighbour is not designated\n");
+        if likely(!pos_to_groups_idx_map.contains(neighbour)) continue;
+        if (!group){
+            // get the group, since at least one exists...
+            group_index = pos_to_groups_idx_map.find(neighbour)->second;
+            group = &groups_array.at(group_index);
             continue;
         }
-        // get the group, since at least one exists... then merge any additional into that one
-        if (!group){
-            TRACE(groups).print(" -> group* has no valid state yet\n");
-            group_index = groups_map.find(neighbour)->second;
-            group = &groups.at(group_index);
-        } else {
-            TRACE(groups).print(" -> group* has an existing state\n");
+        // we don't do anything if the found group is the same as the existing group
+        auto index2 = pos_to_groups_idx_map.find(neighbour)->second;
+        if likely(group_index == index2) continue;
 
-            // we don't do anything if the found group is the same as the existing group
-            auto index2 = groups_map.find(neighbour)->second;
-            if (group_index != index2) {
-                // we already have group "prime" if you will, so we're going to merge the new find into prime
-                Group &group2 = groups.at(index2);
-                // merge
-                TRACE(groups).print(" -> merging two groups. group 1 size: %zu. group 2 size: %zu\n", group->size(),
-                                    group2.size());
-                for (auto pos2: group2) {
-                    group->emplace(pos2);
-                    groups_map[pos2] = group_index;
-                }
-                group2.clear();
-                free_spots.emplace(index2);
-                TRACE(groups).print("    merged size: %zu\n", group->size());
+        // different. merge
+        Group* group2 = &groups_array.at(index2);
+        // which N is smaller, transfer it's elements
+        if (groups_array[group_index].size() > groups_array[index2].size()) {
+            for (auto pos: *group2) {
+                group->emplace(pos);
+                pos_to_groups_idx_map[pos] = group_index;
             }
+            group2->clear();
+            free_spots.emplace(index2);
+            // group2 merged into group
+        } else {
+            for (auto pos: *group) {
+                group2->emplace(pos);
+                pos_to_groups_idx_map[pos] = index2;
+            }
+            group->clear();
+            group = group2;
+            free_spots.emplace(group_index);
+            group_index = index2;
+            // group merged into group2. group updated
         }
     }
     // if we haven't found at least one group by now we need to create/get one
     if (!group) {
-        TRACE(groups).print(" -> no merging took place\n");
         // first we check if we can re-use a group that's been freed
         if (!free_spots.empty()) {
-            TRACE(groups).print(" -> use recycled old group\n");
             // first element in a set is always the lowest value, so we re-use from the front of the vector
             group_index = *free_spots.begin();
-            group = &groups[group_index];
+            group = &groups_array[group_index];
             free_spots.erase(free_spots.begin());
         } else {
-            TRACE(groups).print(" -> brand new group\n");
             // we create a brand-new group to use
-            group_index = groups.size();
-            groups.emplace_back();
-            group = &groups[group_index];
+            group_index = groups_array.size();
+            groups_array.emplace_back();
+            group = &groups_array[group_index];
         }
     }
     // puts the "add" in "ChannelGroups::add"
+    pos_to_groups_idx_map[map_pos] = group_index;
     group->emplace(map_pos);
     DEBUG(groups).print(" = group[%d] of (" COORD ") is size: %zu\n", group_index, COORDARGS(map_pos), group->size());
 
     // we may have performed a merge, so we update all the `coord -> group index` mappings
-    for (auto &wpos: *group) {
-        groups_map[wpos] = group_index;
-    }
-    DEBUG(groups).print(" <- add() exits, there are %zu mappings\n", groups_map.size());
+    // for (auto &wpos: *group) {
+    //     pos_to_groups_idx_map[wpos] = group_index;
+    // }
+    DEBUG(groups).print(" <- add() exits, there are %zu mappings\n", pos_to_groups_idx_map.size());
 }
 
 // scans a single tile for channel designations
@@ -104,12 +105,13 @@ void ChannelGroups::scan_one(const df::coord &map_pos) {
     df::map_block* block = Maps::getTileBlock(map_pos);
     int16_t lx = map_pos.x % 16;
     int16_t ly = map_pos.y % 16;
-    if (is_dig_designation(block->designation[lx][ly])) {
+    if (is_dig_designation(block->designation[lx][ly]) || block->occupancy[lx][ly].bits.dig_marked ) {
+        // We have a dig designated, or marked. Some of these will not need intervention.
         for (df::block_square_event* event: block->block_events) {
             if (auto evT = virtual_cast<df::block_square_event_designation_priorityst>(event)) {
                 // we want to let the user keep some designations free of being managed
-                if (evT->priority[lx][ly] < 1000 * config.ignore_threshold) {
-                    TRACE(groups).print("   adding (" COORD ")\n", COORDARGS(map_pos));
+                TRACE(groups).print("   tile designation priority: %d\n", evT->priority[lx][ly]);
+                if (evT->priority[lx][ly] < 1001 * config.ignore_threshold) {
                     add(map_pos);
                 }
             }
@@ -117,6 +119,10 @@ void ChannelGroups::scan_one(const df::coord &map_pos) {
     } else if (TileCache::Get().hasChanged(map_pos, block->tiletype[lx][ly])) {
         TileCache::Get().uncache(map_pos);
         remove(map_pos);
+        if (jobs.contains(map_pos)) {
+            jobs.erase(map_pos);
+        }
+        block->designation[lx][ly].bits.dig = df::tile_dig_designation::No;
     }
 }
 
@@ -140,50 +146,13 @@ void ChannelGroups::scan(bool full_scan) {
                     if (!full_scan && !block->flags.bits.designated) {
                         continue;
                     }
-                    df::map_block* block_above = Maps::getBlock(bx, by, z+1);
                     // foreach tile
-                    bool empty_group = true;
                     for (int16_t lx = 0; lx < 16; ++lx) {
                         for (int16_t ly = 0; ly < 16; ++ly) {
                             // the tile, check if it has a channel designation
                             df::coord map_pos((bx * 16) + lx, (by * 16) + ly, z);
-                            if (TileCache::Get().hasChanged(map_pos, block->tiletype[lx][ly])) {
-                                TileCache::Get().uncache(map_pos);
-                                remove(map_pos);
-                                if (jobs.count(map_pos)) {
-                                    jobs.erase(map_pos);
-                                }
-                                block->designation[lx][ly].bits.dig = df::tile_dig_designation::No;
-                            } else if (is_dig_designation(block->designation[lx][ly]) || block->occupancy[lx][ly].bits.dig_marked ) {
-                                // We have a dig designated, or marked. Some of these will not need intervention.
-                                if (block_above &&
-                                    !is_channel_designation(block->designation[lx][ly]) &&
-                                    !is_channel_designation(block_above->designation[lx][ly])) {
-                                    // if this tile isn't a channel designation, and doesn't have a channel designation above it.. we can skip it
-                                    continue;
-                                }
-                                for (df::block_square_event* event: block->block_events) {
-                                    if (auto evT = virtual_cast<df::block_square_event_designation_priorityst>(event)) {
-                                        // we want to let the user keep some designations free of being managed
-                                        TRACE(groups).print("   tile designation priority: %d\n", evT->priority[lx][ly]);
-                                        if (evT->priority[lx][ly] < 1000 * config.ignore_threshold) {
-                                            if (empty_group) {
-                                                group_blocks.emplace(block);
-                                                empty_group = false;
-                                            }
-                                            TRACE(groups).print("   adding (" COORD ")\n", COORDARGS(map_pos));
-                                            add(map_pos);
-                                        } else if (groups_map.count(map_pos)) {
-                                            remove(map_pos);
-                                        }
-                                    }
-                                }
-                            }
+                            scan_one(map_pos);
                         }
-                    }
-                    // erase the block if we didn't find anything iterating through it
-                    if (empty_group) {
-                        group_blocks.erase(block);
                     }
                 }
             }
@@ -195,22 +164,21 @@ void ChannelGroups::scan(bool full_scan) {
 // updates groupings of adjacent channel designations based on changes to the job list
 void ChannelGroups::scan_jobs() {
     // save current jobs, then clear and load the current jobs
-    std::set<df::coord> last_jobs;
-    for (auto &pos : jobs) {
-        last_jobs.emplace(pos);
-    }
+    std::unordered_set<df::coord> last_job_locations(
+        std::ranges::begin(jobs.keys()),
+        std::ranges::end(jobs.keys())
+    );
     jobs.load_channel_jobs();
+    std::unordered_set<df::coord> current_job_locations(
+        std::ranges::begin(jobs.keys()),
+        std::ranges::end(jobs.keys())
+    );
     // transpose channel jobs to
     std::set<df::coord> new_jobs;
-    std::set<df::coord> gone_jobs;
-    set_difference(last_jobs, jobs, gone_jobs);
-    set_difference(jobs, last_jobs, new_jobs);
-    INFO(groups).print("gone jobs: %zd\nnew jobs: %zd\n",gone_jobs.size(), new_jobs.size());
+    set_difference(current_job_locations, last_job_locations, new_jobs);
+
     for (auto &pos : new_jobs) {
         add(pos);
-    }
-    for (auto &pos : gone_jobs){
-        remove(pos);
     }
 }
 
@@ -219,68 +187,52 @@ void ChannelGroups::clear() {
     debug_map();
     WARN(groups).print(" <- clearing groups\n");
     jobs.clear();
-    group_blocks.clear();
     free_spots.clear();
-    groups_map.clear();
-    for(size_t i = 0; i < groups.size(); ++i) {
-        groups[i].clear();
+    pos_to_groups_idx_map.clear();
+    for(size_t i = 0; i < groups_array.size(); ++i) {
+        groups_array[i].clear();
         free_spots.emplace(i);
     }
 }
 
 // erases map_pos from its group, and deletes mappings IFF the group is empty
 void ChannelGroups::remove(const df::coord &map_pos) {
-    // we don't need to do anything if the position isn't in a group (granted, that should never be the case)
-    INFO(groups).print(" remove()\n");
-    if (groups_map.count(map_pos)) {
-        INFO(groups).print(" -> found group\n");
-        // get the group, and map_pos' block*
-        int group_index = groups_map.find(map_pos)->second;
-        Group &group = groups[group_index];
-        // erase map_pos from the group
-        INFO(groups).print(" -> erase(" COORD ")\n", COORDARGS(map_pos));
-        group.erase(map_pos);
-        groups_map.erase(map_pos);
-        // clean up if the group is empty
-        if (group.empty()) {
-            WARN(groups).print(" -> group is empty\n");
-            // erase `coord -> group group_index` mappings
-            for (auto iter = groups_map.begin(); iter != groups_map.end();) {
-                if (group_index == iter->second) {
-                    iter = groups_map.erase(iter);
-                    continue;
-                }
-                ++iter;
-            }
-            // flag the `groups` group_index as available
-            free_spots.insert(group_index);
-        }
+    if (!pos_to_groups_idx_map.contains(map_pos)) {
+        return;
     }
-    INFO(groups).print(" remove() exits\n");
+    // get the group, and map_pos' block*
+    int group_index = pos_to_groups_idx_map.find(map_pos)->second;
+    Group &group = groups_array[group_index];
+    // erase map_pos from the group
+    group.erase(map_pos);
+    pos_to_groups_idx_map.erase(map_pos);
+    // clean up if the group is empty
+    if (group.empty()) {
+        // likely redundant: erase `coord -> group group_index` mappings
+        for (auto iter = pos_to_groups_idx_map.begin(); iter != pos_to_groups_idx_map.end();) {
+            if unlikely(group_index == iter->second) {
+                iter = pos_to_groups_idx_map.erase(iter);
+                continue;
+            }
+            ++iter;
+        }
+        // flag the `groups` group_index as available
+        free_spots.insert(group_index);
+    }
 }
 
 // finds a group corresponding to a map position if one exists
-Groups::const_iterator ChannelGroups::find(const df::coord &map_pos) const {
-    const auto iter = groups_map.find(map_pos);
-    if (iter != groups_map.end()) {
-        return groups.begin() + iter->second;
+std::set<df::coord>* ChannelGroups::find(const df::coord &map_pos) {
+    const auto iter = pos_to_groups_idx_map.find(map_pos);
+    if (iter != pos_to_groups_idx_map.end()) {
+        return &groups_array[iter->second];
     }
-    return groups.end();
-}
-
-// returns an iterator to the first element stored
-Groups::const_iterator ChannelGroups::begin() const {
-    return groups.begin();
-}
-
-// returns an iterator to after the last element stored
-Groups::const_iterator ChannelGroups::end() const {
-    return groups.end();
+    return nullptr;
 }
 
 // returns a count of 0 or 1 depending on whether map_pos is mapped to a group
-size_t ChannelGroups::count(const df::coord &map_pos) const {
-    return groups_map.count(map_pos);
+bool ChannelGroups::contains(const df::coord &map_pos) const {
+    return pos_to_groups_idx_map.contains(map_pos) || jobs.contains(map_pos);
 }
 
 // prints debug info about the groups stored, and their members
@@ -288,7 +240,7 @@ void ChannelGroups::debug_groups() {
     if (DFHack::debug_groups.isEnabled(DebugCategory::LDEBUG)) {
         int idx = 0;
         DEBUG(groups).print(" debugging group data\n");
-        for (auto &group: groups) {
+        for (auto &group: groups_array) {
             DEBUG(groups).print("  group %d (size: %zu)\n", idx, group.size());
             for (auto &pos: group) {
                 DEBUG(groups).print("   (%d,%d,%d)\n", pos.x, pos.y, pos.z);
@@ -301,8 +253,8 @@ void ChannelGroups::debug_groups() {
 // prints debug info group mappings
 void ChannelGroups::debug_map() {
     if (DFHack::debug_groups.isEnabled(DebugCategory::LTRACE)) {
-        INFO(groups).print("Group Mappings: %zu\n", groups_map.size());
-        for (auto &pair: groups_map) {
+        INFO(groups).print("Group Mappings: %zu\n", pos_to_groups_idx_map.size());
+        for (auto &pair: pos_to_groups_idx_map) {
             TRACE(groups).print(" map[" COORD "] = %d\n", COORDARGS(pair.first), pair.second);
         }
     }

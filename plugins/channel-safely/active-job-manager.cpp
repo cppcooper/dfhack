@@ -8,6 +8,7 @@
 #include <PluginManager.h>
 
 #include <modules/Units.h>
+//#include <df/job.h>
 #include <df/block_square_event_designation_priorityst.h>
 #include <df/report.h>
 
@@ -47,30 +48,65 @@ df::coord simulate_area_fall(const df::coord &pos) {
     return lowest;
 }
 
-bool ActiveJobManager::has_cavein_conditions(const df::coord &map_pos) const {
-    auto p = map_pos;
-    auto ttype = *Maps::getTileType(p);
-    if (!DFHack::isOpenTerrain(ttype)) {
-        // check shared neighbour for cave-in conditions
-        df::coord neighbours[4];
-        get_connected_neighbours(map_pos, neighbours);
-        int connectedness = 4;
-        for (auto n: neighbours) {
-            if (!Maps::isValidTilePos(n) || active_dig_sites.count(n) || DFHack::isOpenTerrain(*Maps::getTileType(n))) {
-                connectedness--;
-            }
+int count_visibility_grid_neighbourhood(const df::coord &pos) {
+    // check shared neighbour for cave-in conditions
+    df::coord neighbours[5];
+    neighbours[0]=pos;
+    get_grid_neighbours(neighbours[0], &neighbours[1]);
+    int visible_tiles = 0;
+    for (auto n: neighbours) {
+        if (bool visible = Maps::isTileVisible(n); visible) {
+            visible_tiles++;
         }
-        if (!connectedness) {
-            // do what?
-            p.z--;
-            if (!Maps::isValidTilePos(p)) return false;
-            ttype = *Maps::getTileType(p);
-            if (DFHack::isOpenTerrain(ttype) || DFHack::isFloorTerrain(ttype)) {
-                return true;
+    }
+    return visible_tiles;
+}
+
+int count_empty_grid_neighbourhood(const df::coord &pos) {
+    // check shared neighbour for cave-in conditions
+    df::coord neighbours[5];
+    neighbours[0]=pos;
+    get_grid_neighbours(neighbours[0], &neighbours[1]);
+    int empty_tiles = 0;
+    for (auto n: neighbours) {
+        bool visible = Maps::isTileVisible(n);
+        if (config.riskaverse && !visible) {
+            empty_tiles++;
+        } else if (bool open = DFHack::isOpenTerrain(*Maps::getTileType(n)); open) {
+            if (!config.require_vision) {
+                empty_tiles++;
+            } else if (visible) {
+                empty_tiles++;
             }
         }
     }
-    return false;
+    return empty_tiles;
+}
+
+bool ActiveJobManager::has_cavein_conditions(const df::coord &map_pos) const {
+    if (!config.riskaverse) {
+        return false;
+    }
+    df::coord below{map_pos};
+    below.z--;
+    auto v2 = count_visibility_grid_neighbourhood(below);
+    auto e2 = count_empty_grid_neighbourhood(below);
+    bool below_risk = false;
+    if (config.require_vision) {
+        below_risk = v2 >= 4 && e2 >= 4;
+    } else {
+        below_risk = e2 >= 4;
+    }
+    if (!below_risk) {
+        return false;
+    }
+    auto v = count_visibility_grid_neighbourhood(map_pos);
+    auto e = count_empty_grid_neighbourhood(map_pos);
+    if (config.require_vision) {
+        return v >= 3 && e >= 3;
+    } else {
+        return e >= 3;
+    }
 }
 
 bool ActiveJobManager::possible_cavein(const df::coord &map_pos) const {
@@ -222,12 +258,12 @@ void ActiveJobManager::on_job_start(df::job* job) {
         return;
     }
     // if a cavein is possible - we'll try to cancel the job
-    if (possible_cavein(pos)) {
+    if (has_cavein_conditions(pos)) {
         /* todo:
             * test if the game crashes or the jobs start polluting the list indefinitely
             * prediction is that the jobs will cause the tiles to flash forever
         */
-        if (remove_worker(job) == 0) { DEBUG(jobs).print("  Unable to remove worker from job."); }
+        if (!Job::removeWorker(job)) { WARN(jobs).print("  Unable to remove worker from job."); }
         cancel_queue.emplace(pos);
         return;
     }
@@ -261,7 +297,7 @@ void ActiveJobManager::on_job_completed(color_ostream &out, df::job* job) {
         return;
     }
     // the job can be considered done
-    ChannelManager::Get().mark_done(ajob.pos);
+    ChannelManager::Get().erase(ajob.pos);
     ChannelManager::Get().manage_group(ajob.pos, true, false);
     block->designation[Coord(local)].bits.traffic = df::tile_traffic::Normal;
     df::coord below(ajob.pos);
@@ -278,14 +314,20 @@ void ActiveJobManager::on_job_completed(color_ostream &out, df::job* job) {
 }
 
 void ActiveJobManager::on_report_event(df::report* report) {
-    int32_t tick = df::global::world->frame_counter;
     switch (report->type) {
         case announcement_type::CANCEL_JOB:
             if (config.insta_dig) {
-                if (report->text.find("cancels Dig") != std::string::npos ||
-                    report->text.find("path") != std::string::npos) {
-
+                bool valid = false;
+                if (ChannelManager::Get().contains(report->pos)) {
                     CSP::dignow_queue.emplace(report->pos);
+                    valid = true;
+                }
+                if (ChannelManager::Get().contains(report->pos2)) {
+                    CSP::dignow_queue.emplace(report->pos2);
+                    valid = true;
+                }
+                if (valid) {
+                    WARN(jobs).print("Report: canceled a channel job. [insta-dig: on]");
                 }
                 DEBUG(plugin).print("%d, pos: " COORD ", pos2: " COORD "\n%s\n", report->id, COORDARGS(report->pos),
                                     COORDARGS(report->pos2), report->text.c_str());
@@ -309,6 +351,7 @@ void ActiveJobManager::on_report_event(df::report* report) {
                 areaMax.z += 1;
                 std::vector<df::unit*> units;
                 Units::getUnitsInBox(units, COORDARGS(areaMin), COORDARGS(areaMax));
+                int32_t tick = df::global::world->frame_counter;
                 for (auto unit: units) {
                     endangered_units[unit->id] = tick;
                     DEBUG(plugin).print(" [id %d] was near a cave in.\n", unit->id);

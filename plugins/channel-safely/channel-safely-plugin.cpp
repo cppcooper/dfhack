@@ -25,17 +25,13 @@ This skeletal logic has not been kept up-to-date since ~v0.5
  -> check pathing:
     -> Can: add job/worker to tracking
     -> Can: set tile to restricted
-    -> Cannot: remove worker
-    -> Cannot: insta-dig & delete job
-    -> Cannot: set designation to Marker Mode (no insta-digging)
+    -> Cannot: remove worker\
 
  OnUpdate:
  -> check worker location:
     -> CanFall: check if a fall would be safe:
         -> Safe: do nothing
         -> Unsafe: remove worker
-        -> Unsafe: insta-dig & delete job (presumes the job is only accessible from directly on the tile)
-        -> Unsafe: set designation to Marker Mode (no insta-digging)
  -> check tile occupancy:
     -> HasUnit: check if a fall would be safe:
         -> Safe: do nothing, let them fall
