@@ -26,14 +26,13 @@ distribution.
 
 #include <deque>
 #include <future>
-#include <map>
 #include <optional>
-#include <sstream>
 #include <string>
+#include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
-#include <variant>
 #include <filesystem>
 
 #include "DataDefs.h"
@@ -524,7 +523,7 @@ namespace df
 
     protected:
         virtual int item_count(void *ptr, CountMode cnt) const {
-            return cnt == COUNT_LEN ? ((container*)ptr)->size * 8 : -1;
+            return cnt == COUNT_LEN ? ((container*)ptr)->size() * 8 : -1;
         }
         virtual bool get_item(void *ptr, int idx) const {
             return ((container*)ptr)->is_set(idx);
@@ -638,7 +637,7 @@ namespace df
         static opaque_identity *get() {
             using type = std::shared_ptr<T>;
             static std::string name = std::string("shared_ptr<") + typeid(T).name() + ">";
-            static opaque_identity identity(sizeof(type), allocator_noassign_fn<type>, name);
+            static opaque_identity identity(sizeof(type), allocator_fn<type>, name);
             return &identity;
         }
     };
@@ -750,6 +749,11 @@ namespace df
         static const container_identity *get();
     };
 
+    template<class T> struct identity_traits<std::unordered_set<T> >
+    {
+        static const container_identity* get();
+    };
+
     template<> struct identity_traits<BitArray<int> > {
         static const bit_array_identity identity;
         static const bit_container_identity *get() { return &identity; }
@@ -830,6 +834,14 @@ namespace df
     inline const container_identity *identity_traits<std::set<T> >::get() {
         using container = std::set<T>;
         static const ro_stl_container_identity<container> identity("set", identity_traits<T>::get());
+        return &identity;
+    }
+
+    template<class T>
+    inline const container_identity* identity_traits<std::unordered_set<T> >::get()
+    {
+        using container = std::unordered_set<T>;
+        static const ro_stl_container_identity<container> identity("unordered_set", identity_traits<T>::get());
         return &identity;
     }
 
