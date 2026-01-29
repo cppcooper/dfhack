@@ -26,8 +26,8 @@ distribution.
 
 #include <functional>
 #include <string>
-#include <sstream>
 #include <vector>
+#include <set>
 #include <map>
 #include <type_traits>
 #include <unordered_map>
@@ -39,7 +39,6 @@ distribution.
 #include "DataDefs.h"
 
 #include "df/interface_key.h"
-#include "df/interfacest.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -140,14 +139,14 @@ namespace DFHack::Lua {
      * Return behavior is of SafeCall below.
      */
     DFHACK_EXPORT bool AssignDFObject(color_ostream &out, lua_State *state,
-                                      type_identity *type, void *target, int val_index,
+                                      const type_identity *type, void *target, int val_index,
                                       bool exact_type = false, bool perr = true);
 
     /**
      * Assign the value at val_index to the target of given identity using df.assign().
      * Otherwise throws an error.
      */
-    DFHACK_EXPORT void CheckDFAssign(lua_State *state, type_identity *type,
+    DFHACK_EXPORT void CheckDFAssign(lua_State *state, const type_identity *type,
                                      void *target, int val_index, bool exact_type = false);
 
     template<typename T> concept df_object = requires()

@@ -24,11 +24,6 @@ distribution.
 
 #pragma once
 
-#include <string>
-#include <sstream>
-#include <vector>
-#include <map>
-
 #include <lua.h>
 #include <lauxlib.h>
 
@@ -167,7 +162,7 @@ namespace LuaWrapper {
                                        const char *ctx, bool allow_type = false,
                                        bool keep_metatable = false);
 
-    void LookupInTable(lua_State *state, void *id, LuaToken *tname);
+    void LookupInTable(lua_State *state, const void *id, LuaToken *tname);
     void SaveInTable(lua_State *state, void *node, LuaToken *tname);
     void SaveTypeInfo(lua_State *state, void *node);
 
