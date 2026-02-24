@@ -1,52 +1,7 @@
 /* Prevent channeling down into known open space.
 Author:  Josh Cooper
 Created: Aug. 4 2020
-Updated: Dec. 8 2022
-*/
-/*
-This skeletal logic has not been kept up-to-date since ~v0.5
-
- Enable plugin:
- -> build groups
- -> manage designations
-
- Unpause event:
- -> build groups
- -> manage designations
-
- Manage Designation(s):
- -> for each group in groups:
-    -> does any tile in group have a group above
-        -> Yes: set entire group to marker mode
-        -> No: activate entire group (still checks is_safe_to_dig_down before activating each designation)
-
- Job started event:
- -> validate job type (channel)
- -> check pathing:
-    -> Can: add job/worker to tracking
-    -> Can: set tile to restricted
-    -> Cannot: remove worker\
-
- OnUpdate:
- -> check worker location:
-    -> CanFall: check if a fall would be safe:
-        -> Safe: do nothing
-        -> Unsafe: remove worker
- -> check tile occupancy:
-    -> HasUnit: check if a fall would be safe:
-        -> Safe: do nothing, let them fall
-        -> Unsafe: remove worker for 1 tick (test if this "pauses" or cancels the job)
-        -> Unsafe: Add feature to teleport unit?
-
- Job completed event:
- -> validate job type (channel)
- -> verify completion:
-    -> IsOpenSpace: mark done
-    -> IsOpenSpace: manage tile below
-    -> NotOpenSpace: check for designation
-        -> HasDesignation: do nothing
-        -> NoDesignation: mark done (erases from group)
-        -> NoDesignation: manage tile below
+Updated: Jan. 29 2026
 */
 
 #include "plugin.h"
@@ -187,7 +142,9 @@ namespace CSP {
             return;
         }
         auto job = static_cast<df::job*>(j);
+        TRACE(jobs).print("job [id: {}] was started, job is at {}.\n",job->id, job->pos);
         if likely(is_channel_job(job)) {
+            INFO(jobs).print("channel job started\n");
             active_job_manager.on_job_start(job);
         }
     }
@@ -197,6 +154,7 @@ namespace CSP {
             return;
         }
         auto job = static_cast<df::job*>(j);
+        TRACE(jobs).print("job [id: {}] was completed, job was at {}.\n",job->id, job->pos);
         // we only care if the job is a channeling one
         if likely(is_channel_job(job)) {
             active_job_manager.on_job_completed(out, job);
@@ -248,9 +206,9 @@ DFhackCExport command_result plugin_enable(color_ostream &out, bool enable) {
     if (enable && !enabled) {
         // register events to check jobs / update tracking
         //EM::EventHandler updateHandler(plugin_self,CSP::OnUpdate, 0);
-        EM::EventHandler jobStartHandler(plugin_self,CSP::JobStartedEvent, 0);
-        EM::EventHandler jobCompletionHandler(plugin_self,CSP::JobCompletedEvent, 0);
-        EM::EventHandler reportHandler(plugin_self,CSP::NewReportEvent, 0);
+        EM::EventHandler jobStartHandler(plugin_self,CSP::JobStartedEvent, 1);
+        EM::EventHandler jobCompletionHandler(plugin_self,CSP::JobCompletedEvent, 1);
+        EM::EventHandler reportHandler(plugin_self,CSP::NewReportEvent, 1);
         //EM::registerTick(updateHandler,1);
         //EM::registerListener(EventType::TICK, updateHandler);
         EM::registerListener(EventType::REPORT, reportHandler);
@@ -301,7 +259,7 @@ DFhackCExport command_result plugin_onupdate(color_ostream &out, state_change_ev
 
 command_result channel_safely(color_ostream &out, std::vector<std::string> &parameters) {
     if (!Core::getInstance().isMapLoaded() || !World::IsSiteLoaded()) {
-        out.printerr("Cannot run %s without a loaded fort.\n", plugin_name);
+        out.printerr("Cannot run {} without a loaded fort.\n", plugin_name);
         return CR_FAILURE;
     }
 
@@ -376,19 +334,20 @@ command_result channel_safely(color_ostream &out, std::vector<std::string> &para
             }
         }
     } else {
-        out.print("Channel-Safely is %s\n", enabled ? "ENABLED." : "DISABLED.");
-        out.print(" FEATURES:\n");
-        out.print("  %-20s\t%s\n", "risk-averse: ", config.riskaverse ? "on." : "off.");
-        out.print("  %-20s\t%s\n", "monitoring: ", config.monitoring ? "on." : "off.");
-        out.print("  %-20s\t%s\n", "require-vision: ", config.require_vision ? "on." : "off.");
-        out.print("  %-20s\t%s\n", "insta-dig: ", config.insta_dig ? "on." : "off.");
-        out.print("  %-20s\t%s\n", "resurrect: ", config.resurrect ? "on." : "off.");
-        out.print(" SETTINGS:\n");
-        out.print("  %-20s\t%" PRIi32 "\n", "refresh-freq: ", config.refresh_freq);
-        //out.print("  %-20s\t%" PRIi32 "\n", "monitor-freq: ", config.monitor_freq);
-        out.print("  %-20s\t%" PRIi32 "\n", "watch-duration: ", config.res_watch_duration);
-        out.print("  %-20s\t%" PRIu8 "\n", "ignore-threshold: ", config.ignore_threshold);
-        out.print("  %-20s\t%" PRIu8 "\n", "fall-threshold: ", config.fall_threshold);
+out.print("Channel-Safely is {}\n", enabled ? "ENABLED." : "DISABLED.");
+out.print(" FEATURES:\n");
+out.print("  {:<20}\t{}\n", "risk-averse:",     config.riskaverse      ? "on." : "off.");
+out.print("  {:<20}\t{}\n", "monitoring:",      config.monitoring      ? "on." : "off.");
+out.print("  {:<20}\t{}\n", "require-vision:",  config.require_vision  ? "on." : "off.");
+out.print("  {:<20}\t{}\n", "insta-dig:",       config.insta_dig       ? "on." : "off.");
+out.print("  {:<20}\t{}\n", "resurrect:",       config.resurrect       ? "on." : "off.");
+out.print(" SETTINGS:\n");
+out.print("  {:<20}\t{}\n", "refresh-freq:",    config.refresh_freq);
+// out.print("  {:<20}\t{}\n", "monitor-freq:",   config.monitor_freq);
+out.print("  {:<20}\t{}\n", "watch-duration:",  config.res_watch_duration);
+out.print("  {:<20}\t{}\n", "ignore-threshold:",config.ignore_threshold);
+out.print("  {:<20}\t{}\n", "fall-threshold:",  config.fall_threshold);
+
     }
     CSP::SaveSettings();
     return DFHack::CR_OK;

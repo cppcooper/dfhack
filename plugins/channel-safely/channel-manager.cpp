@@ -44,7 +44,9 @@ void ChannelManager::manage_groups() {
     // make sure we've got a fort map to analyze
     if (World::isFortressMode() && Maps::IsValid()) {
         // iterate the groups we built/updated
+        INFO(manager).print("manage_groups(): iterating groups\n");
         for (const auto &group: groups.keys()) {
+            DEBUG(manager).print("managing group starting at {}\n",*group.begin());
             manage_group(group, true, has_any_groups_above(groups, group));
         }
     }
@@ -78,27 +80,27 @@ void ChannelManager::manage_group(const std::set<df::coord> &group, bool use_mm_
                 continue;
             }
             const auto below_ttype = *Maps::getTileType(below);
-            if ((visible || !config.require_vision) && !DFHack::isOpenTerrain(below_ttype) && !DFHack::isFloorTerrain(below_ttype)) {
+            if (!DFHack::isOpenTerrain(below_ttype) && !DFHack::isFloorTerrain(below_ttype)) {
                 // skipping because not floor or open space below while visible or not requiring vision
                 continue;
             }
             // open space below /or floor
-            DEBUG(manager).print("analysis: cave-in condition found\n");
+            TRACE(manager).print("analysis: cave-in condition found\n");
             auto access = count_accessibility(miner_pos, pos);
             // if any
             cavein_possible = config.riskaverse;
             cavein_candidates.emplace(pos, access);
             least_access = std::min(access, least_access);
         }
-        DEBUG(manager).print("cavein possible(%d)\n"
-                             "%zu candidates\n"
-                             "least access %d\n", cavein_possible, cavein_candidates.size(), least_access);
+        DEBUG(manager).print("cavein possible({})\n"
+                             "{} candidates\n"
+                             "least access {}\n", cavein_possible, cavein_candidates.size(), least_access);
     }
     for (auto &pos: group) {
         // if no cave-in is possible [or we don't check for], we'll just execute normally and move on
         if likely(marker_mode || !config.riskaverse || !cavein_possible) {
             TRACE(manager).print("cave-in evaluated false\n");
-            d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L122");
+            d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L101");
             continue;
         }
         // marker_mode = false
@@ -107,7 +109,7 @@ void ChannelManager::manage_group(const std::set<df::coord> &group, bool use_mm_
         //const static uint8_t OFFSET = 2; //value has been tweaked to avoid cave-ins whilst activating as many designations as possible
         if (!cavein_candidates.contains(pos)) {
             // not a cavein candidate
-            d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L131");
+            d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L110");
             continue;
         }
         // if (cavein_candidates[pos] > least_access+OFFSET) {
@@ -129,7 +131,7 @@ void ChannelManager::manage_group(const std::set<df::coord> &group, bool use_mm_
         //         evT->priority[Coord(local)] = v;
         //     }
         // }
-        d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L154");
+        d_assert(manage_one(pos, true, marker_mode), "manage_one() failed. L132");
     }
 }
 
@@ -171,8 +173,8 @@ bool ChannelManager::manage_one(const df::coord &map_pos, bool use_mm_arg_value,
         block->designation[Coord(local)].bits.dig = tile_dig_designation::Channel;
         block->occupancy[Coord(local)].bits.dig_marked = marker_mode;
         //block->occupancy[Coord(local)].bits.
-        DEBUG(manager).print("manage_one((" COORD "), %d, %d): marker mode: %s\n",
-            COORDARGS(map_pos), use_mm_arg_value, marker_mode, marker_mode ? "ENABLED" : "DISABLED");
+        DEBUG(manager).print("manage_one({}, {}, {}): marker mode: {}\n",
+            map_pos, use_mm_arg_value, marker_mode, marker_mode ? "ENABLED" : "DISABLED");
     }
     return true;
 }

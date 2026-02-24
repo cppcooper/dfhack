@@ -123,7 +123,7 @@ bool ActiveJobManager::possible_cavein(const df::coord &map_pos) const {
                 for (int j = i + 1; j < 8; ++j) {
                     if (n1[i] == n2[j]) {
                         if (has_cavein_conditions(n1[i])) {
-                            WARN(jobs).print("Channel-Safely::jobs: Cave-in conditions detected at (" COORD ")\n", COORDARGS(n1[i]));
+                            WARN(jobs).print("Cave-in conditions detected at ({})\n", n1[i]);
                             return true;
                         }
                     }
@@ -230,6 +230,7 @@ void ActiveJobManager::on_update(color_ostream &out) {
 extern DFHack::EventManager::EventHandler resurrectHandler;
 
 void ActiveJobManager::on_job_start(df::job* job) {
+    INFO(jobs).print("{} job started", job->pos);
     if (!ChannelManager::Get().contains(job->pos)) {
         ChannelManager::Get().build_groups(false);
     }
@@ -259,6 +260,7 @@ void ActiveJobManager::on_job_start(df::job* job) {
     }
     // if a cavein is possible - we'll try to cancel the job
     if (has_cavein_conditions(pos)) {
+        INFO(jobs).print("cavein conditions found at {}", pos);
         /* todo:
             * test if the game crashes or the jobs start polluting the list indefinitely
             * prediction is that the jobs will cause the tiles to flash forever
@@ -277,12 +279,15 @@ void ActiveJobManager::on_job_start(df::job* job) {
 }
 
 void ActiveJobManager::on_job_completed(color_ostream &out, df::job* job) {
+    INFO(jobs).print("job completed at {}\n", job->pos);
     if (!active_jobs.contains(job->id)) {
+        DEBUG(jobs).print("job completed [id: {}] but was not an active job at {}\n", job->id, job->pos);
         return;
     }
     auto ajob = active_jobs[job->id];
     auto aworker = active_workers[ajob.id];
     if (config.resurrect && !Units::isAlive(aworker.worker)) {
+        DEBUG(jobs).print("worker [id: {}] is dead, resurrect is enabled.\n", aworker.id);
         resurrect(out, aworker.id);
         df::coord lowest = simulate_fall(aworker.last_safe_pos);
         Units::teleport(aworker.worker, lowest);
@@ -294,6 +299,7 @@ void ActiveJobManager::on_job_completed(color_ostream &out, df::job* job) {
     local.x = local.x % 16;
     local.y = local.y % 16;
     if (!TileCache::Get().hasChanged(ajob.pos, block->tiletype[Coord(local)])) {
+        DEBUG(jobs).print("active job completed [id: {}] at {} but the tile is the same as before.\n", job->id, job->pos);
         return;
     }
     // the job can be considered done
@@ -302,7 +308,7 @@ void ActiveJobManager::on_job_completed(color_ostream &out, df::job* job) {
     block->designation[Coord(local)].bits.traffic = df::tile_traffic::Normal;
     df::coord below(ajob.pos);
     below.z--;
-    DEBUG(jobs).print(" -> (" COORD ") is marked done, managing group below.\n", COORDARGS(ajob.pos));
+    DEBUG(jobs).print(" -> ({}) is marked done, managing group below.\n", COORDARGS(ajob.pos));
     ChannelManager::Get().manage_group(below);
 
     // erase tracked data

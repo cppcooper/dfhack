@@ -16,8 +16,10 @@
 #include "active-job-manager.h"
 
 #define Coord(id) (id).x][(id).y
-#define COORD "%" PRIi16 ",%" PRIi16 ",%" PRIi16
-#define COORDARGS(id) (id).x, (id).y, (id).z
+#define COORD "{}"
+#define COORDARGS(id) id
+// #define COORD "%" PRIi16 ",%" PRIi16 ",%" PRIi16
+// #define COORDARGS(id) (id).x, (id).y, (id).z
 
 namespace CSP {
     extern ActiveJobManager active_job_manager;
@@ -142,27 +144,23 @@ inline bool is_safe_to_dig_down(const df::coord &map_pos) {
     df::coord pos(map_pos);
 
     // todo: probably should rely on is_safe_fall, it looks like it could be simplified a great deal
-    for (uint8_t zi = 0; zi <= config.fall_threshold; ++zi) {
+    for (uint8_t zi = 0; zi < config.fall_threshold; ++zi) {
+        pos.z--; // todo: this can probably move to the beginning of the loop
         // if we're digging out of bounds, the game can handle that (hopefully)
         if unlikely(!Maps::isValidTilePos(pos)) {
-            return true;
+            ERR(manager).print("Invalid dig location detected, quite late in the stack.\n");
+            return false;
         }
         // if we require vision, and we can't see the tiles in question.. we'll need to assume it's safe to dig to get anything done
-        if (config.require_vision && Maps::getTileDesignation(pos)->bits.hidden) {
+        if (config.require_vision && !Maps::isTileVisible(pos)) {
             return true;
         }
 
         df::tiletype type = *Maps::getTileType(pos);
-        if (zi == 0 && DFHack::isOpenTerrain(type)) {
-            // todo: remove? this is probably not useful.. and seems like the only considerable difference to is_safe_fall (aside from where each stops looking)
-            // the starting tile is open space, that's obviously not safe
-            return false;
-        }
         if (!DFHack::isOpenTerrain(type)) {
             // a tile after the first one is not open space
             return true;
         }
-        pos.z--; // todo: this can probably move to the beginning of the loop
     }
     return false;
 }

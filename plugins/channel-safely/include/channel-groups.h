@@ -7,6 +7,7 @@
 #include <modules/EventManager.h> //hash functions (they should probably get moved at this point, the ones that aren't specifically for EM anyway)
 
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -30,7 +31,8 @@ private:
     std::unordered_map<df::coord, int> pos_to_groups_idx_map;
     std::vector<std::set<df::coord>> groups_array;
     ChannelJobs &jobs;
-    std::set<int> free_spots; // ids of groups that are empty, recycling empty groups
+    // ids of groups that are empty, recycling empty groups
+    std::set<int> free_spots;
 protected:
     void add(const df::coord &map_pos);
 public:

@@ -12,10 +12,11 @@ void ChannelJobs::load_channel_jobs() {
     df::job_list_link* node = df::global::world->jobs.list.next;
     while (node) {
         df::job* job = node->item;
-        node = node->next;
         if (is_channel_job(job)) {
+            TRACE(jobs).print("parsing jobs list, found job [id: {}] at {}\n", job->id, job->pos);
             job_ptrs[job->pos] = job;
         }
+        node = node->next;
     }
 }
 
@@ -29,6 +30,7 @@ void ChannelGroups::add(const df::coord &map_pos) {
      * So what we do is we look at neighbours to see if they belong to one or more existing groups
      * If there is more than one group, we'll be merging them
      */
+    // x=47, y=63, z=166
     df::coord neighbors[8];
     get_neighbours(map_pos, neighbors);
     Group* group = nullptr;
@@ -53,24 +55,23 @@ void ChannelGroups::add(const df::coord &map_pos) {
         // different. merge
         Group* group2 = &groups_array.at(index2);
         // which N is smaller, transfer it's elements
+        auto merge_groups = [&](Group* bigger, Group* smaller, int i1, int i2) {
+            for (auto pos: *smaller) {
+                bigger->emplace(pos);
+                pos_to_groups_idx_map[pos] = i1;
+            }
+            smaller->clear();
+            free_spots.emplace(i2);
+        };
         if (groups_array[group_index].size() > groups_array[index2].size()) {
-            for (auto pos: *group2) {
-                group->emplace(pos);
-                pos_to_groups_idx_map[pos] = group_index;
-            }
-            group2->clear();
-            free_spots.emplace(index2);
-            // group2 merged into group
+            // group2 merges into group
+            merge_groups(group, group2, group_index, index2);
         } else {
-            for (auto pos: *group) {
-                group2->emplace(pos);
-                pos_to_groups_idx_map[pos] = index2;
-            }
-            group->clear();
-            group = group2;
-            free_spots.emplace(group_index);
+            // group merges into group2
+            merge_groups(group2, group, index2, group_index);
+            // group info updated
             group_index = index2;
-            // group merged into group2. group updated
+            group = group2;
         }
     }
     // if we haven't found at least one group by now we need to create/get one
@@ -80,6 +81,7 @@ void ChannelGroups::add(const df::coord &map_pos) {
             // first element in a set is always the lowest value, so we re-use from the front of the vector
             group_index = *free_spots.begin();
             group = &groups_array[group_index];
+            group->clear(); // just to be safe i.e. redundant?
             free_spots.erase(free_spots.begin());
         } else {
             // we create a brand-new group to use
@@ -91,13 +93,7 @@ void ChannelGroups::add(const df::coord &map_pos) {
     // puts the "add" in "ChannelGroups::add"
     pos_to_groups_idx_map[map_pos] = group_index;
     group->emplace(map_pos);
-    DEBUG(groups).print(" = group[%d] of (" COORD ") is size: %zu\n", group_index, COORDARGS(map_pos), group->size());
-
-    // we may have performed a merge, so we update all the `coord -> group index` mappings
-    // for (auto &wpos: *group) {
-    //     pos_to_groups_idx_map[wpos] = group_index;
-    // }
-    DEBUG(groups).print(" <- add() exits, there are %zu mappings\n", pos_to_groups_idx_map.size());
+    DEBUG(groups).print("group {} added {}, group size is now {}\n", group_index, map_pos, group->size());
 }
 
 // scans a single tile for channel designations
@@ -110,13 +106,14 @@ void ChannelGroups::scan_one(const df::coord &map_pos) {
         for (df::block_square_event* event: block->block_events) {
             if (auto evT = virtual_cast<df::block_square_event_designation_priorityst>(event)) {
                 // we want to let the user keep some designations free of being managed
-                TRACE(groups).print("   tile designation priority: %d\n", evT->priority[lx][ly]);
-                if (evT->priority[lx][ly] < 1001 * config.ignore_threshold) {
+                if (evT->priority[lx][ly] < 1 + (1000 * config.ignore_threshold)) {
+                    TRACE(groups).print("scan_one, adding {}.\n", map_pos);
                     add(map_pos);
                 }
             }
         }
     } else if (TileCache::Get().hasChanged(map_pos, block->tiletype[lx][ly])) {
+        DEBUG(groups).print("scan_one, the tile {} changed.\n", map_pos);
         TileCache::Get().uncache(map_pos);
         remove(map_pos);
         if (jobs.contains(map_pos)) {
@@ -135,7 +132,7 @@ void ChannelGroups::scan(bool full_scan) {
     }
 
     scan_jobs();
-    DEBUG(groups).print("  scan()\n");
+    TRACE(groups).print("  scan()\n");
     // foreach block
     for (int32_t z = mapz - 1; z >= 0; --z) {
         for (int32_t by = 0; by < mapy; ++by) {
@@ -158,7 +155,7 @@ void ChannelGroups::scan(bool full_scan) {
             }
         }
     }
-    INFO(groups).print("scan() exits\n");
+    TRACE(groups).print("scan() exits\n");
 }
 
 // updates groupings of adjacent channel designations based on changes to the job list
@@ -178,6 +175,7 @@ void ChannelGroups::scan_jobs() {
     set_difference(current_job_locations, last_job_locations, new_jobs);
 
     for (auto &pos : new_jobs) {
+        DEBUG(groups).print("new job at {}\n", pos);
         add(pos);
     }
 }
@@ -241,9 +239,9 @@ void ChannelGroups::debug_groups() {
         int idx = 0;
         DEBUG(groups).print(" debugging group data\n");
         for (auto &group: groups_array) {
-            DEBUG(groups).print("  group %d (size: %zu)\n", idx, group.size());
+            DEBUG(groups).print("  group {} (size: {})\n", idx, group.size());
             for (auto &pos: group) {
-                DEBUG(groups).print("   (%d,%d,%d)\n", pos.x, pos.y, pos.z);
+                DEBUG(groups).print("   {}\n", pos);
             }
             idx++;
         }
@@ -253,9 +251,9 @@ void ChannelGroups::debug_groups() {
 // prints debug info group mappings
 void ChannelGroups::debug_map() {
     if (DFHack::debug_groups.isEnabled(DebugCategory::LTRACE)) {
-        INFO(groups).print("Group Mappings: %zu\n", pos_to_groups_idx_map.size());
+        INFO(groups).print("Group Mappings: {}\n", pos_to_groups_idx_map.size());
         for (auto &pair: pos_to_groups_idx_map) {
-            TRACE(groups).print(" map[" COORD "] = %d\n", COORDARGS(pair.first), pair.second);
+            TRACE(groups).print(" map[{}] = {}\n", pair.first, pair.second);
         }
     }
 }
